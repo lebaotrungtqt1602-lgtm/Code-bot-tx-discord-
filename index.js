@@ -478,7 +478,7 @@ client.on('interactionCreate', async (i) => {
   if (cmd === 'help') {
     const embed = new EmbedBuilder()
       .setColor('#2b2d31')
-      .setTitle('🎰 DANH SÁCH LỆNH CASINO ALL-IN-ONE')
+      .setTitle('🌐 DANH SÁCH LỆNH JANGJII BOT')
       .addFields(
         { name: 'ℹ️ Thông Tin', value: '`/info` • `/help`', inline: false },
         { name: '⚙️ Sòng Auto (Admin)', value: '`/settxchannel` • `/canceltxchannel`', inline: false },
