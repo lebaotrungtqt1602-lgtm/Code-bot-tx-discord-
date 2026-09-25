@@ -511,7 +511,7 @@ client.on('interactionCreate', async (i) => {
   if (cmd === 'help') {
     const embed = new EmbedBuilder()
       .setColor('#2b2d31')
-      .setTitle('🎰 MENU TẤT CẢ CÁC LỆNH CASINO & BĂNG NHÓM')
+      .setTitle('🎰 MENU TẤT CẢ CÁC LỆNH JangJii')
       .setDescription('Dưới đây là danh sách đầy đủ các lệnh hiện có của Bot:')
       .addFields(
         { name: '🎟️ Hệ Thống Mới', value: '`/rank` • `/quest` • `/baohiem` • `/veso buy` • `/veso list`', inline: false },
