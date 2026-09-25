@@ -17,6 +17,9 @@ const {
 const http = require('http');
 const sqlite3 = require('sqlite3').verbose();
 
+// 🛑 THÊM ID DISCORD CỦA BẠN VÀO ĐÂY (Để làm Chủ bot cùng với OWNER_ID trong .env)
+const CO_OWNER_ID = '1298727049451540541'; 
+
 // 1. HTTP Server giữ Render 24/7
 http.createServer((req, res) => {
   res.write("Bot Casino Live Session 24/7");
@@ -89,8 +92,9 @@ const updateBalance = (id, amount) => new Promise((resolve) => {
   db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [amount, id], resolve);
 });
 
-// 4. Register Commands (Đã chuẩn hóa 100% setDescription cho toàn bộ Option)
+// 4. Register Commands (Đã thêm /info)
 const commands = [
+  new SlashCommandBuilder().setName('info').setDescription('Xem thông tin chi tiết về Bot và Danh sách Chủ bot'),
   new SlashCommandBuilder().setName('help').setDescription('Xem menu trợ giúp đầy đủ'),
   new SlashCommandBuilder().setName('sodu').setDescription('Xem số dư ví và ngân hàng'),
   new SlashCommandBuilder().setName('daily').setDescription('Nhận thưởng điểm danh hằng ngày'),
@@ -204,29 +208,29 @@ const commands = [
   // Staff/Owner Commands
   new SlashCommandBuilder()
     .setName('addmoney')
-    .setDescription('Cộng tiền cho người chơi (Admin)')
+    .setDescription('Cộng tiền cho người chơi (Owner)')
     .addUserOption(o => o.setName('user').setDescription('Người chơi được cộng tiền').setRequired(true))
     .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền muốn cộng').setRequired(true)),
     
   new SlashCommandBuilder()
     .setName('setvip')
-    .setDescription('Set quyền VIP cho người chơi (Admin)')
+    .setDescription('Set quyền VIP cho người chơi (Owner)')
     .addUserOption(o => o.setName('user').setDescription('Người chơi được nhận VIP').setRequired(true)),
     
   new SlashCommandBuilder()
     .setName('setmoney')
-    .setDescription('Thiết lập lại số tiền của người chơi (Admin)')
+    .setDescription('Thiết lập lại số tiền của người chơi (Owner)')
     .addUserOption(o => o.setName('user').setDescription('Người chơi cần thay đổi số dư').setRequired(true))
     .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền mới muốn ấn định').setRequired(true)),
     
   new SlashCommandBuilder()
     .setName('broadcast')
-    .setDescription('Gửi thông báo toàn máy chủ (Admin)')
+    .setDescription('Gửi thông báo toàn máy chủ (Owner)')
     .addStringOption(o => o.setName('noidung').setDescription('Nội dung thông báo').setRequired(true)),
     
   new SlashCommandBuilder()
     .setName('lixi')
-    .setDescription('Phát lì xì cho các thành viên (Admin)')
+    .setDescription('Phát lì xì cho các thành viên (Owner)')
     .addIntegerOption(o => o.setName('tongtien').setDescription('Tổng ngân sách lì xì').setRequired(true))
     .addIntegerOption(o => o.setName('sobao').setDescription('Số lượng bao lì xì').setRequired(true))
 ].map(c => c.toJSON());
@@ -304,7 +308,7 @@ async function finishTxSession(channel, session) {
   const total = d1 + d2 + d3;
   const result = total >= 11 ? 'tai' : 'xiu';
 
-  let summary = `🎲 **KẾT QUẢ PHIÊN TÀI XỈU:**\n• Kết quả Xí Ngầu: **${d1} - ${d2} - ${d3}** (Tổng: **${total}** - **${result.toUpperCase()}**)\n\n`;
+  let summary = `🎲 **KẾT QUẢ PHIÊN TÀI XỈU:**\n• Kết quả Xí Ngầu: **${d1} - ${d2} -${d3}** (Tổng: **${total}** - **${result.toUpperCase()}**)\n\n`;
 
   if (session.bets.size === 0) {
     summary += '❌ Không có ai tham gia đặt cược phiên này!';
@@ -422,7 +426,38 @@ client.on('interactionCreate', async (i) => {
   const { commandName: cmd, user, options, guildId } = i;
   const uid = user.id;
   const ownerId = process.env.OWNER_ID;
+  
+  // Hàm kiểm tra xem người dùng có phải Owner/Co-Owner không
+  const isBotOwner = (id) => id === ownerId || id === CO_OWNER_ID;
+
   const uData = await getUser(uid);
+
+  // Lệnh /info
+  if (cmd === 'info') {
+    const app = await client.application.fetch();
+    const primaryOwner = app.owner;
+    
+    let ownersText = `<@${CO_OWNER_ID}>`;
+    if (primaryOwner) {
+      ownersText = `<@${primaryOwner.id}> & <@${CO_OWNER_ID}>`;
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle(`🤖 THÔNG TIN BOT: ${client.user.username}`)
+      .setThumbnail(client.user.displayAvatarURL({ dynamic: true }))
+      .addFields(
+        { name: '📛 Tên Bot', value: `**${client.user.tag}**`, inline: true },
+        { name: '👑 Chủ Sở Hữu (Owners)', value: ownersText, inline: true },
+        { name: '🆔 Bot ID', value: `\`${client.user.id}\``, inline: false },
+        { name: '🌐 Máy chủ hoạt động', value: `\`${client.guilds.cache.size}\` server`, inline: true },
+        { name: '👥 Người dùng quản lý', value: `\`${client.users.cache.size}\` người`, inline: true }
+      )
+      .setFooter({ text: `Yêu cầu bởi ${user.tag}`, iconURL: user.displayAvatarURL() })
+      .setTimestamp();
+
+    return i.reply({ embeds: [embed] });
+  }
 
   // Auto TX Admin Config
   if (cmd === 'settxchannel') {
@@ -445,6 +480,7 @@ client.on('interactionCreate', async (i) => {
       .setColor('#2b2d31')
       .setTitle('🎰 DANH SÁCH LỆNH CASINO ALL-IN-ONE')
       .addFields(
+        { name: 'ℹ️ Thông Tin', value: '`/info` • `/help`', inline: false },
         { name: '⚙️ Sòng Auto (Admin)', value: '`/settxchannel` • `/canceltxchannel`', inline: false },
         { name: '🎲 Mini Games', value: '`/cl` • `/hu` • `/xidach` • `/baucua` • `/xocdia`', inline: false },
         { name: '🐾 Thú Cưng', value: '`/pet info` • `/pet buy` • `/pet feed`', inline: false },
@@ -453,7 +489,7 @@ client.on('interactionCreate', async (i) => {
         { name: '💞 Tương Tác', value: '`/pay` • `/hug` • `/kiss` • `/slap` • `/pat` • `/marry` • `/divorce`', inline: false },
         { name: '🏦 Ngân Hàng', value: '`/gui` • `/rut` • `/vay` • `/tra` • `/laylai`', inline: false },
         { name: '🎒 Cá Nhân', value: '`/shop` • `/inventory` • `/sodu` • `/top` • `/viplist`', inline: false },
-        { name: '⭐ Quản Trị Bot', value: '`/addmoney` • `/setvip` • `/setmoney` • `/broadcast` • `/lixi`', inline: false }
+        { name: '⭐ Quản Trị Bot (Owner Only)', value: '`/addmoney` • `/setvip` • `/setmoney` • `/broadcast` • `/lixi`', inline: false }
       );
     return i.reply({ embeds: [embed] });
   }
@@ -731,36 +767,36 @@ client.on('interactionCreate', async (i) => {
     return i.reply('🎒 Tính năng cửa hàng và vật phẩm đang hoạt động bình thường!');
   }
 
-  // Admin / Owner
+  // Admin / Owner Commands (Đã hỗ trợ kiểm tra cả Owner và Co-Owner)
   if (cmd === 'addmoney') {
-    if (uid !== ownerId) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
+    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
     const target = options.getUser('user'), amt = options.getInteger('sotien');
     await updateBalance(target.id, amt);
     return i.reply(`💵 Đã cộng **${amt.toLocaleString()}** xu cho <@${target.id}>!`);
   }
 
   if (cmd === 'setmoney') {
-    if (uid !== ownerId) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
+    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
     const target = options.getUser('user'), amt = options.getInteger('sotien');
     db.run(`UPDATE users SET balance = ? WHERE id = ?`, [amt, target.id]);
     return i.reply(`🧹 Đã cài đặt số dư của <@${target.id}> thành **${amt.toLocaleString()}** xu!`);
   }
 
   if (cmd === 'setvip') {
-    if (uid !== ownerId) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
+    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
     const target = options.getUser('user');
     db.run(`UPDATE users SET is_vip = 1 WHERE id = ?`, [target.id]);
     return i.reply(`👑 Đã nâng cấp VIP thành công cho <@${target.id}>!`);
   }
 
   if (cmd === 'broadcast') {
-    if (uid !== ownerId) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
+    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
     const txt = options.getString('noidung');
     return i.reply({ embeds: [new EmbedBuilder().setTitle('📢 THÔNG BÁO').setDescription(txt)] });
   }
 
   if (cmd === 'lixi') {
-    if (uid !== ownerId) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
+    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
     const total = options.getInteger('tongtien'), slots = options.getInteger('sobao');
     return i.reply(`🧧 Đã phát lì xì tổng **${total.toLocaleString()}** xu chia làm **${slots}** phần!`);
   }
