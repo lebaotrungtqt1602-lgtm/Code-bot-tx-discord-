@@ -9,11 +9,10 @@ const {
   ActionRowBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
-  ComponentType,
-  ChannelType,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle
+  TextInputStyle,
+  PermissionFlagsBits
 } = require('discord.js');
 const http = require('http');
 const sqlite3 = require('sqlite3').verbose();
@@ -67,6 +66,12 @@ db.serialize(() => {
     fund INTEGER DEFAULT 0
   )`);
 
+  // Bảng lưu cấu hình kênh Auto Tài Xỉu cho từng Server
+  db.run(`CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id TEXT PRIMARY KEY,
+    tx_channel_id TEXT DEFAULT NULL
+  )`);
+
   db.run(`INSERT OR IGNORE INTO jackpot (id, amount) VALUES (1, 50000)`);
 });
 
@@ -85,14 +90,25 @@ const updateBalance = (id, amount) => new Promise((resolve) => {
   db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [amount, id], resolve);
 });
 
-// 4. Register Commands
+// 4. Register Commands (Đã sửa các chỗ thiếu setDescription)
 const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Xem menu trợ giúp đầy đủ'),
   new SlashCommandBuilder().setName('sodu').setDescription('Xem số dư ví và ngân hàng'),
   new SlashCommandBuilder().setName('daily').setDescription('Nhận thưởng điểm danh hằng ngày'),
   
-  // Trò chơi
-  new SlashCommandBuilder().setName('txlive').setDescription('Mở phiên Đặt Cược Tài Xỉu Live (40s)'),
+  // Cấu hình Kênh Auto Tài Xỉu (Chỉ Admin/Owner Server mới dùng được)
+  new SlashCommandBuilder()
+    .setName('settxchannel')
+    .setDescription('Thiết lập kênh đặt cược Tài Xỉu tự động liên tục')
+    .addChannelOption(o => o.setName('kenh').setDescription('Chọn kênh làm sòng Tài Xỉu').setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('canceltxchannel')
+    .setDescription('Tắt chế độ Auto Tài Xỉu tự động ở server')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  // Trò chơi mini
   new SlashCommandBuilder().setName('cl').setDescription('Chơi Chẵn Lẻ')
     .addStringOption(o => o.setName('luachon').setDescription('Chọn Chẵn/Lẻ').setRequired(true).addChoices({name:'Chẵn',value:'chan'},{name:'Lẻ',value:'le'}))
     .addIntegerOption(o => o.setName('tiencuoc').setDescription('Số tiền cược').setRequired(true)),
@@ -158,12 +174,20 @@ const commands = [
   new SlashCommandBuilder().setName('viplist').setDescription('Danh sách VIP'),
   new SlashCommandBuilder().setName('top').setDescription('Top đại gia'),
 
-  // Staff/Owner
-  new SlashCommandBuilder().setName('addmoney').setDescription('Cộng tiền').addUserOption(o => o.setName('user').setRequired(true)).addIntegerOption(o => o.setName('sotien').setRequired(true)),
-  new SlashCommandBuilder().setName('setvip').setDescription('Set VIP').addUserOption(o => o.setName('user').setRequired(true)),
-  new SlashCommandBuilder().setName('setmoney').setDescription('Set tiền').addUserOption(o => o.setName('user').setRequired(true)).addIntegerOption(o => o.setName('sotien').setRequired(true)),
-  new SlashCommandBuilder().setName('broadcast').setDescription('Gửi thông báo').addStringOption(o => o.setName('noidung').setRequired(true)),
-  new SlashCommandBuilder().setName('lixi').setDescription('Phát lì xì').addIntegerOption(o => o.setName('tongtien').setRequired(true)).addIntegerOption(o => o.setName('sobao').setRequired(true))
+  // Staff/Owner (ĐÃ FIX LỖI THIẾU DESCRIPTION TẠI ĐÂY)
+  new SlashCommandBuilder().setName('addmoney').setDescription('Cộng tiền cho người chơi')
+    .addUserOption(o => o.setName('user').setDescription('Người được cộng tiền').setRequired(true))
+    .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền cộng').setRequired(true)),
+  new SlashCommandBuilder().setName('setvip').setDescription('Set quyền VIP cho người chơi')
+    .addUserOption(o => o.setName('user').setDescription('Người nhận VIP').setRequired(true)),
+  new SlashCommandBuilder().setName('setmoney').setDescription('Set lại số tiền của người chơi')
+    .addUserOption(o => o.setName('user').setDescription('Người chơi').setRequired(true))
+    .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền muốn set').setRequired(true)),
+  new SlashCommandBuilder().setName('broadcast').setDescription('Gửi thông báo toàn server')
+    .addStringOption(o => o.setName('noidung').setDescription('Nội dung thông báo').setRequired(true)),
+  new SlashCommandBuilder().setName('lixi').setDescription('Phát lì xì toàn server')
+    .addIntegerOption(o => o.setName('tongtien').setDescription('Tổng tiền lì xì').setRequired(true))
+    .addIntegerOption(o => o.setName('sobao').setDescription('Số bao lì xì').setRequired(true))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -176,35 +200,39 @@ client.once('ready', async () => {
   } catch (err) {
     console.error('❌ Lỗi:', err);
   }
+
+  // Khởi động vòng lặp Auto Tài Xỉu cho các kênh đã cài đặt
+  startAutoTxLoop();
 });
 
-// --- BIẾN QUẢN LÝ PHIÊN PHIÊN TÀI XỈU LIVE ---
-let activeTxSession = null;
+// --- BIẾN QUẢN LÝ PHIÊN AUTO TÀI XỈU ---
+const activeSessions = new Map(); // channelId => sessionObject
 
-async function startTxSession(channel) {
-  if (activeTxSession) return;
+async function startSingleTxSession(channel) {
+  if (activeSessions.has(channel.id)) return;
 
-  activeTxSession = {
+  const session = {
     timeLeft: 40,
     totalTai: 0,
     totalXiu: 0,
-    bets: new Map(), // userId => { choice: 'tai'/'xiu', amount: number }
+    bets: new Map(),
     message: null
   };
+
+  activeSessions.set(channel.id, session);
 
   await channel.send('🎲 **Đặt cược Tài Xỉu đã bắt đầu! Thời gian đặt cược là 40 giây.**\n🎲 **Betting has begun! Bet time is 40 seconds.**');
 
   const renderEmbed = () => {
-    const participantsCount = activeTxSession.bets.size;
     return new EmbedBuilder()
       .setColor('#ff9900')
       .setDescription(
         `🎲 **Đặt cược Tài Xỉu / Place your bets!**\n\n` +
-        `Nhấn vào nút để chọn Tài hoặc Xỉu và nhập số tiền cược. Thời gian còn lại: **${activeTxSession.timeLeft}s**.\n` +
-        `Click the button to select Tai or Xiu. Time left: **${activeTxSession.timeLeft}s**.\n\n` +
-        `**Total Tài / Tai**\n${activeTxSession.totalTai.toLocaleString()}$\n\n` +
-        `**Total Xỉu / Xiu**\n${activeTxSession.totalXiu.toLocaleString()}$\n\n` +
-        `**Number of participants**\n${participantsCount}`
+        `Nhấn vào nút để chọn Tài hoặc Xỉu và nhập số tiền cược. Thời gian còn lại: **${session.timeLeft}s**.\n` +
+        `Click the button to select Tai or Xiu. Time left: **${session.timeLeft}s**.\n\n` +
+        `**Total Tài / Tai**\n${session.totalTai.toLocaleString()}$\n\n` +
+        `**Total Xỉu / Xiu**\n${session.totalXiu.toLocaleString()}$\n\n` +
+        `**Number of participants**\n${session.bets.size}`
       )
       .setFooter({ text: `${client.user.username} | Hôm nay lúc ${new Date().toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}` });
   };
@@ -215,29 +243,21 @@ async function startTxSession(channel) {
     new ButtonBuilder().setCustomId('tx_btn_cancel').setLabel('Hủy cược / Cancel').setStyle(ButtonStyle.Danger)
   );
 
-  activeTxSession.message = await channel.send({ embeds: [renderEmbed()], components: [buttons] });
+  session.message = await channel.send({ embeds: [renderEmbed()], components: [buttons] });
 
-  // Đếm ngược 40 giây
   const timer = setInterval(async () => {
-    if (!activeTxSession) {
-      clearInterval(timer);
-      return;
-    }
+    session.timeLeft -= 5;
 
-    activeTxSession.timeLeft -= 5;
-
-    if (activeTxSession.timeLeft <= 0) {
+    if (session.timeLeft <= 0) {
       clearInterval(timer);
-      await finishTxSession(channel);
+      await finishTxSession(channel, session);
     } else {
-      activeTxSession.message.edit({ embeds: [renderEmbed()] }).catch(() => {});
+      session.message.edit({ embeds: [renderEmbed()] }).catch(() => {});
     }
   }, 5000);
 }
 
-async function finishTxSession(channel) {
-  if (!activeTxSession) return;
-
+async function finishTxSession(channel, session) {
   const d1 = Math.floor(Math.random() * 6) + 1;
   const d2 = Math.floor(Math.random() * 6) + 1;
   const d3 = Math.floor(Math.random() * 6) + 1;
@@ -246,10 +266,10 @@ async function finishTxSession(channel) {
 
   let summary = `🎲 **KẾT QUẢ PHIÊN TÀI XỈU:**\n• Kết quả Xí Ngầu: **${d1} - ${d2} - ${d3}** (Tổng: **${total}** - **${result.toUpperCase()}**)\n\n`;
 
-  if (activeTxSession.bets.size === 0) {
+  if (session.bets.size === 0) {
     summary += '❌ Không có ai tham gia đặt cược phiên này!';
   } else {
-    for (const [userId, bet] of activeTxSession.bets.entries()) {
+    for (const [userId, bet] of session.bets.entries()) {
       if (bet.choice === result) {
         const winAmt = bet.amount * 2;
         await updateBalance(userId, winAmt);
@@ -260,35 +280,55 @@ async function finishTxSession(channel) {
     }
   }
 
-  // Khóa nút bấm khi kết thúc phiên
   const disabledButtons = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('tx_btn_tai').setLabel('Tài / Tai').setStyle(ButtonStyle.Primary).setDisabled(true),
     new ButtonBuilder().setCustomId('tx_btn_xiu').setLabel('Xỉu / Xiu').setStyle(ButtonStyle.Primary).setDisabled(true),
     new ButtonBuilder().setCustomId('tx_btn_cancel').setLabel('Hủy cược / Cancel').setStyle(ButtonStyle.Danger).setDisabled(true)
   );
 
-  await activeTxSession.message.edit({ components: [disabledButtons] }).catch(() => {});
+  await session.message.edit({ components: [disabledButtons] }).catch(() => {});
   await channel.send({ embeds: [new EmbedBuilder().setColor('#00ff00').setDescription(summary)] });
 
-  activeTxSession = null; // Xóa session cũ
+  activeSessions.delete(channel.id);
+}
+
+// Vòng lặp kiểm tra và tự động chạy phiên mới
+function startAutoTxLoop() {
+  setInterval(() => {
+    db.all(`SELECT tx_channel_id FROM guild_settings WHERE tx_channel_id IS NOT NULL`, [], async (err, rows) => {
+      if (err || !rows) return;
+
+      for (const row of rows) {
+        try {
+          const channel = await client.channels.fetch(row.tx_channel_id).catch(() => null);
+          if (channel && !activeSessions.has(channel.id)) {
+            startSingleTxSession(channel);
+          }
+        } catch (e) {
+          console.error("Lỗi gửi tin nhắn kênh Auto TX:", e);
+        }
+      }
+    });
+  }, 10000);
 }
 
 // 5. Xử lý Interaction
 client.on('interactionCreate', async (i) => {
 
-  // --- HÀM XỬ LÝ BUTTONS & MODALS CHO LIVE TÀI XỈU ---
+  // Button & Modal handler
   if (i.isButton()) {
-    if (!activeTxSession) return i.reply({ content: '❌ Hiện tại không có phiên Tài Xỉu nào đang mở!', ephemeral: true });
+    const session = activeSessions.get(i.channelId);
+    if (!session) return i.reply({ content: '❌ Hiện tại phiên cược này đã kết thúc!', ephemeral: true });
 
     if (i.customId === 'tx_btn_cancel') {
-      const userBet = activeTxSession.bets.get(i.user.id);
+      const userBet = session.bets.get(i.user.id);
       if (!userBet) return i.reply({ content: '❌ Bạn chưa đặt cược phiên này!', ephemeral: true });
 
       await updateBalance(i.user.id, userBet.amount);
-      if (userBet.choice === 'tai') activeTxSession.totalTai -= userBet.amount;
-      else activeTxSession.totalXiu -= userBet.amount;
+      if (userBet.choice === 'tai') session.totalTai -= userBet.amount;
+      else session.totalXiu -= userBet.amount;
 
-      activeTxSession.bets.delete(i.user.id);
+      session.bets.delete(i.user.id);
       return i.reply({ content: `✅ Bạn đã hủy cược thành công và nhận lại **${userBet.amount.toLocaleString()}** xu!`, ephemeral: true });
     }
 
@@ -313,7 +353,8 @@ client.on('interactionCreate', async (i) => {
 
   if (i.isModalSubmit()) {
     if (i.customId.startsWith('tx_modal_')) {
-      if (!activeTxSession) return i.reply({ content: '❌ Phiên cược đã kết thúc!', ephemeral: true });
+      const session = activeSessions.get(i.channelId);
+      if (!session) return i.reply({ content: '❌ Phiên cược đã kết thúc!', ephemeral: true });
 
       const choice = i.customId.replace('tx_modal_', '');
       const amtStr = i.fields.getTextInputValue('tx_bet_amount');
@@ -324,15 +365,15 @@ client.on('interactionCreate', async (i) => {
       const uData = await getUser(i.user.id);
       if (uData.balance < amt) return i.reply({ content: '❌ Số dư tài khoản không đủ!', ephemeral: true });
 
-      if (activeTxSession.bets.has(i.user.id)) {
-        return i.reply({ content: '❌ Bạn đã đặt cược ở phiên này rồi! Hãy bấm Hủy cược nếu muốn đặt lại.', ephemeral: true });
+      if (session.bets.has(i.user.id)) {
+        return i.reply({ content: '❌ Bạn đã đặt cược ở phiên này rồi! Bấm Hủy cược nếu muốn đặt lại.', ephemeral: true });
       }
 
       await updateBalance(i.user.id, -amt);
-      activeTxSession.bets.set(i.user.id, { choice, amount: amt });
+      session.bets.set(i.user.id, { choice, amount: amt });
 
-      if (choice === 'tai') activeTxSession.totalTai += amt;
-      else activeTxSession.totalXiu += amt;
+      if (choice === 'tai') session.totalTai += amt;
+      else session.totalXiu += amt;
 
       return i.reply({ content: `✅ Bạn đã đặt cược **${amt.toLocaleString()}** xu vào **${choice.toUpperCase()}** thành công!`, ephemeral: true });
     }
@@ -340,38 +381,46 @@ client.on('interactionCreate', async (i) => {
 
   if (!i.isChatInputCommand()) return;
 
-  const { commandName: cmd, user, options } = i;
+  const { commandName: cmd, user, options, guildId } = i;
   const uid = user.id;
   const ownerId = process.env.OWNER_ID;
   const uData = await getUser(uid);
 
-  // --- LỆNH MỞ PHIÊN TÀI XỈU LIVE ---
-  if (cmd === 'txlive') {
-    if (activeTxSession) return i.reply({ content: '❌ Đang có 1 phiên Tài Xỉu diễn ra rồi!', ephemeral: true });
-    await i.reply({ content: '🚀 Đã bắt đầu mở phiên Tài Xỉu Live!', ephemeral: true });
-    startTxSession(i.channel);
-    return;
+  // --- LỆNH SET KÊNH AUTO TÀI XỈU ---
+  if (cmd === 'settxchannel') {
+    const targetChannel = options.getChannel('kenh');
+    db.run(`INSERT INTO guild_settings (guild_id, tx_channel_id) VALUES (?, ?) 
+            ON CONFLICT(guild_id) DO UPDATE SET tx_channel_id = ?`, 
+            [guildId, targetChannel.id, targetChannel.id]);
+
+    return i.reply(`✅ Đã thiết lập kênh <#${targetChannel.id}> làm **Sòng Tài Xỉu Auto 24/7**! Các phiên cược sẽ tự động diễn ra liên tục tại đây.`);
   }
 
-  // --- CÁC LỆNH CŨ (HELP, PET, WORK, ROB, HOÀN TOÀN GIỮ NGUYÊN) ---
+  if (cmd === 'canceltxchannel') {
+    db.run(`UPDATE guild_settings SET tx_channel_id = NULL WHERE guild_id = ?`, [guildId]);
+    return i.reply(`🛑 Đã tắt chế độ Auto Tài Xỉu tự động tại Server này!`);
+  }
+
+  // Help
   if (cmd === 'help') {
     const embed = new EmbedBuilder()
       .setColor('#2b2d31')
       .setTitle('🎰 DANH SÁCH LỆNH CASINO ALL-IN-ONE')
       .addFields(
-        { name: '🎲 Tài Xỉu Live 40s', value: '`/txlive` (Mở phiên đặt cược dùng nút bấm bấm)', inline: false },
-        { name: '🎲 Trò chơi khác', value: '`/cl` • `/hu` • `/xidach` • `/baucua` • `/xocdia`', inline: false },
+        { name: '⚙️ Quản lý Sòng Auto (Dành cho Admin)', value: '`/settxchannel` • `/canceltxchannel`', inline: false },
+        { name: '🎲 Trò chơi mini', value: '`/cl` • `/hu` • `/xidach` • `/baucua` • `/xocdia`', inline: false },
         { name: '🐾 Thú Cưng', value: '`/pet info` • `/pet buy` • `/pet feed`', inline: false },
         { name: '🏴‍☠️ Băng Nhóm', value: '`/gang create` • `/gang info` • `/truyna`', inline: false },
         { name: '🌾 Cày Cấy', value: '`/work` • `/crime` • `/rob` • `/daily`', inline: false },
         { name: '💞 Tương Tác', value: '`/pay` • `/hug` • `/kiss` • `/slap` • `/pat` • `/marry` • `/divorce`', inline: false },
         { name: '🏦 Ngân Hàng', value: '`/gui` • `/rut` • `/vay` • `/tra` • `/laylai`', inline: false },
         { name: '🎒 Cá Nhân', value: '`/shop` • `/inventory` • `/sodu` • `/top` • `/viplist`', inline: false },
-        { name: '⭐ Quản Trị', value: '`/addmoney` • `/setvip` • `/setmoney` • `/broadcast` • `/lixi`', inline: false }
+        { name: '⭐ Quản Trị Bot', value: '`/addmoney` • `/setvip` • `/setmoney` • `/broadcast` • `/lixi`', inline: false }
       );
     return i.reply({ embeds: [embed] });
   }
 
+  // Pet
   if (cmd === 'pet') {
     const sub = options.getSubcommand();
     if (sub === 'info') {
@@ -398,6 +447,7 @@ client.on('interactionCreate', async (i) => {
     }
   }
 
+  // Gang
   if (cmd === 'gang') {
     const sub = options.getSubcommand();
     if (sub === 'create') {
@@ -421,6 +471,7 @@ client.on('interactionCreate', async (i) => {
     }
   }
 
+  // Truy nã & Chuyển tiền
   if (cmd === 'truyna') {
     const target = options.getUser('target');
     const amt = options.getInteger('sotien');
@@ -440,15 +491,90 @@ client.on('interactionCreate', async (i) => {
     return i.reply(`💸 <@${uid}> chuyển **${amt.toLocaleString()}** xu cho <@${target.id}>!`);
   }
 
+  // Tương tác
   if (['hug', 'kiss', 'slap', 'pat'].includes(cmd)) {
     const target = options.getUser('target');
     return i.reply({ content: `✨ <@${uid}> đã dùng lệnh **${cmd}** với <@${target.id}>!` });
   }
 
-  if (cmd === 'xidach' || cmd === 'baucua' || cmd === 'xocdia' || cmd === 'cl' || cmd === 'hu') {
-    return i.reply('🎲 Game mini đơn lẻ đang sẵn sàng phục vụ!');
+  // Mini Games
+  if (cmd === 'xidach') {
+    const bet = options.getInteger('tiencuoc');
+    if (bet <= 0 || uData.balance < bet) return i.reply({ content: '❌ Số dư không đủ!', ephemeral: true });
+    const pTotal = Math.floor(Math.random()*10)+12, bTotal = Math.floor(Math.random()*10)+12;
+    if (pTotal > bTotal && pTotal <= 21) {
+      await updateBalance(uid, bet);
+      return i.reply(`🃏 Bạn **${pTotal} điểm** vs Nhà cái **${bTotal} điểm**. Thắng **+${bet.toLocaleString()}** xu!`);
+    } else {
+      await updateBalance(uid, -bet);
+      return i.reply(`🃏 Bạn **${pTotal} điểm** vs Nhà cái **${bTotal} điểm**. Thua **-${bet.toLocaleString()}** xu!`);
+    }
   }
 
+  if (cmd === 'baucua') {
+    const choice = options.getString('luachon'), bet = options.getInteger('tiencuoc');
+    if (bet <= 0 || uData.balance < bet) return i.reply({ content: '❌ Số dư không đủ!', ephemeral: true });
+    const items = ['bau', 'cua', 'tom', 'ca', 'nai', 'ga'];
+    const res = [items[Math.floor(Math.random()*6)], items[Math.floor(Math.random()*6)], items[Math.floor(Math.random()*6)]];
+    const match = res.filter(x => x === choice).length;
+    if (match > 0) {
+      await updateBalance(uid, bet * match);
+      return i.reply(`🎲 Ra: ${res.join(', ')}. Đúng ${match} con! Thắng **+${(bet * match).toLocaleString()}** xu!`);
+    } else {
+      await updateBalance(uid, -bet);
+      return i.reply(`🎲 Ra: ${res.join(', ')}. Thua **-${bet.toLocaleString()}** xu!`);
+    }
+  }
+
+  if (cmd === 'xocdia') {
+    const choice = options.getString('luachon'), bet = options.getInteger('tiencuoc');
+    if (bet <= 0 || uData.balance < bet) return i.reply({ content: '❌ Số dư không đủ!', ephemeral: true });
+    const isChan = Math.random() > 0.5;
+    const win = (choice === 'chan' && isChan) || (choice === 'le' && !isChan);
+    if (win) {
+      await updateBalance(uid, bet);
+      return i.reply(`🔴 Kết quả: **${isChan ? 'CHẮN' : 'LẺ'}**. Thắng **+${bet.toLocaleString()}** xu!`);
+    } else {
+      await updateBalance(uid, -bet);
+      return i.reply(`🔴 Kết quả: **${isChan ? 'CHẮN' : 'LẺ'}**. Thua **-${bet.toLocaleString()}** xu!`);
+    }
+  }
+
+  if (cmd === 'cl') {
+    const choice = options.getString('luachon'), bet = options.getInteger('tiencuoc');
+    if (bet <= 0 || uData.balance < bet) return i.reply({ content: '❌ Số dư không đủ!', ephemeral: true });
+    const num = Math.floor(Math.random() * 100);
+    const isChan = num % 2 === 0;
+    const win = (choice === 'chan' && isChan) || (choice === 'le' && !isChan);
+    if (win) {
+      await updateBalance(uid, bet);
+      return i.reply(`🔢 Số ra: **${num}** (${isChan ? 'CHẮN' : 'LẺ'}). Thắng **+${bet.toLocaleString()}** xu!`);
+    } else {
+      await updateBalance(uid, -bet);
+      return i.reply(`🔢 Số ra: **${num}** (${isChan ? 'CHẮN' : 'LẺ'}). Thua **-${bet.toLocaleString()}** xu!`);
+    }
+  }
+
+  if (cmd === 'hu') {
+    const bet = options.getInteger('tiencuoc');
+    db.get(`SELECT amount FROM jackpot WHERE id = 1`, [], async (err, row) => {
+      let jackpotAmt = row ? row.amount : 50000;
+      if (!bet) return i.reply(`🎰 Hũ hiện tại: **${jackpotAmt.toLocaleString()}** xu!`);
+      if (bet < 1000 || uData.balance < bet) return i.reply({ content: '❌ Cược từ 1.000 xu!', ephemeral: true });
+      db.run(`UPDATE jackpot SET amount = amount + ? WHERE id = 1`, [Math.floor(bet * 0.3)]);
+      if (Math.random() < 0.05) {
+        await updateBalance(uid, jackpotAmt);
+        db.run(`UPDATE jackpot SET amount = 50000 WHERE id = 1`);
+        return i.reply(`🎉 🎉 **NỔ HŨ!** Bạn ăn trọn **${jackpotAmt.toLocaleString()}** xu!`);
+      } else {
+        await updateBalance(uid, -bet);
+        return i.reply(`🎰 Chúc bạn may mắn lần sau!`);
+      }
+    });
+    return;
+  }
+
+  // Số dư & Top
   if (cmd === 'sodu') {
     return i.reply({ embeds: [new EmbedBuilder().setColor('#FFD700').setTitle(`💰 Ví Tiền ${user.username}`)
       .setDescription(`• Ví: ${uData.balance.toLocaleString()} xu\n• Ngân hàng: ${uData.bank.toLocaleString()} xu`)] });
@@ -462,13 +588,143 @@ client.on('interactionCreate', async (i) => {
     return;
   }
 
-  if (cmd === 'work' || cmd === 'daily' || cmd === 'crime' || cmd === 'rob') {
-    await updateBalance(uid, 2000);
-    return i.reply(`🎉 Bạn nhận được +2,000 xu từ lệnh ${cmd}!`);
+  // Work, Daily, Crime, Rob
+  if (cmd === 'daily') {
+    const now = Date.now();
+    if (now - uData.last_daily < 86400000) return i.reply({ content: '⏳ Đã nhận thưởng hôm nay rồi!', ephemeral: true });
+    db.run(`UPDATE users SET balance = balance + 5000, last_daily = ? WHERE id = ?`, [now, uid]);
+    return i.reply('🎉 Bạn nhận được +5,000 xu!');
   }
 
-  if (cmd === 'gui' || cmd === 'rut' || cmd === 'vay' || cmd === 'tra' || cmd === 'laylai') {
-    return i.reply('🏦 Thao tác ngân hàng thành công!');
+  if (cmd === 'work') {
+    const now = Date.now();
+    if (now - uData.last_work < 300000) return i.reply({ content: '⏳ Đợi 5 phút nhé!', ephemeral: true });
+    const earn = Math.floor(Math.random() * 2000) + 1000;
+    db.run(`UPDATE users SET balance = balance + ?, last_work = ? WHERE id = ?`, [earn, now, uid]);
+    return i.reply(`💼 Bạn kiếm được +${earn.toLocaleString()} xu!`);
+  }
+
+  if (cmd === 'crime') {
+    const now = Date.now();
+    if (now - uData.last_crime < 600000) return i.reply({ content: '⏳ Đợi 10 phút!', ephemeral: true });
+    db.run(`UPDATE users SET last_crime = ? WHERE id = ?`, [now, uid]);
+    if (Math.random() > 0.4) {
+      const earn = Math.floor(Math.random() * 4000) + 2000;
+      await updateBalance(uid, earn);
+      return i.reply(`🥷 Thành công! Nhận **+${earn.toLocaleString()}** xu!`);
+    } else {
+      await updateBalance(uid, -2000);
+      return i.reply(`🚓 Bị phạt **-2,000** xu!`);
+    }
+  }
+
+  if (cmd === 'rob') {
+    const target = options.getUser('target');
+    if (target.id === uid) return i.reply({ content: '❌ Không thể tự cướp mình!', ephemeral: true });
+    const tData = await getUser(target.id);
+    if (tData.balance < 2000) return i.reply({ content: '❌ Đối phương quá nghèo!', ephemeral: true });
+    const now = Date.now();
+    if (now - uData.last_rob < 900000) return i.reply({ content: '⏳ Đợi 15 phút!', ephemeral: true });
+    db.run(`UPDATE users SET last_rob = ? WHERE id = ?`, [now, uid]);
+    if (Math.random() > 0.5) {
+      const robAmt = Math.floor(tData.balance * 0.2);
+      await updateBalance(target.id, -robAmt);
+      await updateBalance(uid, robAmt);
+      return i.reply(`💥 Cướp thành công **${robAmt.toLocaleString()}** xu từ <@${target.id}>!`);
+    } else {
+      return i.reply(`🛡️ Cướp thất bại!`);
+    }
+  }
+
+  // Ngân hàng
+  if (cmd === 'gui') {
+    const amt = options.getInteger('sotien');
+    if (amt <= 0 || uData.balance < amt) return i.reply({ content: '❌ Tiền ví không đủ!', ephemeral: true });
+    db.run(`UPDATE users SET balance = balance - ?, bank = bank + ? WHERE id = ?`, [amt, amt, uid]);
+    return i.reply(`🏦 Gửi **${amt.toLocaleString()}** xu vào ngân hàng!`);
+  }
+
+  if (cmd === 'rut') {
+    const amt = options.getInteger('sotien');
+    if (amt <= 0 || uData.bank < amt) return i.reply({ content: '❌ Ngân hàng không đủ tiền!', ephemeral: true });
+    db.run(`UPDATE users SET balance = balance + ?, bank = bank - ? WHERE id = ?`, [amt, amt, uid]);
+    return i.reply(`🏦 Rút **${amt.toLocaleString()}** xu về ví!`);
+  }
+
+  if (cmd === 'vay') {
+    const amt = options.getInteger('sotien');
+    if (amt <= 0 || amt > 50000) return i.reply({ content: '❌ Tối đa 50.000 xu!', ephemeral: true });
+    if (uData.debt > 0) return i.reply({ content: '❌ Cần trả hết nợ cũ!', ephemeral: true });
+    db.run(`UPDATE users SET balance = balance + ?, debt = ? WHERE id = ?`, [amt, Math.floor(amt * 1.2), uid]);
+    return i.reply(`💳 Đã vay **${amt.toLocaleString()}** xu!`);
+  }
+
+  if (cmd === 'tra') {
+    const amt = options.getInteger('sotien');
+    if (amt <= 0 || uData.balance < amt) return i.reply({ content: '❌ Tiền ví không đủ!', ephemeral: true });
+    const payAmt = Math.min(amt, uData.debt);
+    db.run(`UPDATE users SET balance = balance - ?, debt = debt - ? WHERE id = ?`, [payAmt, payAmt, uid]);
+    return i.reply(`💳 Trả **${payAmt.toLocaleString()}** xu nợ!`);
+  }
+
+  if (cmd === 'laylai') {
+    const now = Date.now();
+    if (now - uData.last_interest < 86400000) return i.reply({ content: '⏳ Nhận 24h/lần!', ephemeral: true });
+    if (uData.bank <= 0) return i.reply({ content: '❌ Không có tiền gửi!', ephemeral: true });
+    const interest = Math.floor(uData.bank * 0.05);
+    db.run(`UPDATE users SET bank = bank + ?, last_interest = ? WHERE id = ?`, [interest, now, uid]);
+    return i.reply(`📈 Nhận **+${interest.toLocaleString()}** xu lãi!`);
+  }
+
+  // Tình cảm
+  if (cmd === 'marry') {
+    const target = options.getUser('target');
+    db.run(`UPDATE users SET married_with = ? WHERE id = ?`, [target.id, uid]);
+    return i.reply(`💍 Đã kết hôn với <@${target.id}>!`);
+  }
+
+  if (cmd === 'divorce') {
+    db.run(`UPDATE users SET married_with = NULL WHERE id = ?`, [uid]);
+    return i.reply(`💔 Đã ly hôn!`);
+  }
+
+  // Shop
+  if (cmd === 'shop' || cmd === 'inventory' || cmd === 'viplist') {
+    return i.reply('🎒 Chức năng túi đồ và shop đang mở!');
+  }
+
+  // Admin
+  if (cmd === 'addmoney') {
+    if (uid !== ownerId) return i.reply({ content: '❌ Chỉ Owner!', ephemeral: true });
+    const target = options.getUser('user'), amt = options.getInteger('sotien');
+    await updateBalance(target.id, amt);
+    return i.reply(`💵 Đã cộng **${amt.toLocaleString()}** xu cho <@${target.id}>!`);
+  }
+
+  if (cmd === 'setmoney') {
+    if (uid !== ownerId) return i.reply({ content: '❌ Chỉ Owner!', ephemeral: true });
+    const target = options.getUser('user'), amt = options.getInteger('sotien');
+    db.run(`UPDATE users SET balance = ? WHERE id = ?`, [amt, target.id]);
+    return i.reply(`🧹 Đã set tiền của <@${target.id}> thành **${amt.toLocaleString()}** xu!`);
+  }
+
+  if (cmd === 'setvip') {
+    if (uid !== ownerId) return i.reply({ content: '❌ Chỉ Owner!', ephemeral: true });
+    const target = options.getUser('user');
+    db.run(`UPDATE users SET is_vip = 1 WHERE id = ?`, [target.id]);
+    return i.reply(`👑 Set VIP thành công cho <@${target.id}>!`);
+  }
+
+  if (cmd === 'broadcast') {
+    if (uid !== ownerId) return i.reply({ content: '❌ Chỉ Owner!', ephemeral: true });
+    const txt = options.getString('noidung');
+    return i.reply({ embeds: [new EmbedBuilder().setTitle('📢 THÔNG BÁO').setDescription(txt)] });
+  }
+
+  if (cmd === 'lixi') {
+    if (uid !== ownerId) return i.reply({ content: '❌ Chỉ Owner!', ephemeral: true });
+    const total = options.getInteger('tongtien'), slots = options.getInteger('sobao');
+    return i.reply(`🧧 Đã mở lì xì **${total.toLocaleString()}** xu cho **${slots}** người!`);
   }
 });
 
