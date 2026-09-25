@@ -14,10 +14,17 @@ const {
   TextInputStyle,
   PermissionFlagsBits
 } = require('discord.js');
+const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 
 // ID Chủ Bot (Owner)
-const CO_OWNER_ID = 'ĐIỀN_ID_DISCORD_CỦA_BẠN_VÀO_ĐÂY'; 
+const CO_OWNER_ID = 'DIEN_ID_CUA_BAN'; 
+
+// Khởi tạo Express Server giữ Render 24/7 chống lỗi Web Service
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.status(200).send('Bot Casino is running live 24/7!'));
+app.listen(PORT, () => console.log(`🌐 Express server đang lắng nghe trên cổng ${PORT}`));
 
 const client = new Client({
   intents: [
@@ -32,27 +39,13 @@ const db = new sqlite3.Database('./casino.db');
 
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY, 
-    balance INTEGER DEFAULT 1000, 
-    bank INTEGER DEFAULT 0, 
-    debt INTEGER DEFAULT 0,
-    last_daily INTEGER DEFAULT 0, 
-    last_work INTEGER DEFAULT 0, 
-    last_crime INTEGER DEFAULT 0,
-    last_rob INTEGER DEFAULT 0, 
-    last_interest INTEGER DEFAULT 0, 
-    is_vip INTEGER DEFAULT 0,
-    married_with TEXT DEFAULT NULL, 
-    pet_type TEXT DEFAULT NULL, 
-    pet_level INTEGER DEFAULT 1,
-    bounty INTEGER DEFAULT 0, 
-    gang_id TEXT DEFAULT NULL, 
-    exp INTEGER DEFAULT 0,
-    insurance_until INTEGER DEFAULT 0, 
-    quest_work INTEGER DEFAULT 0, 
-    quest_gamble INTEGER DEFAULT 0,
-    quest_done INTEGER DEFAULT 0, 
-    last_quest_reset INTEGER DEFAULT 0
+    id TEXT PRIMARY KEY, balance INTEGER DEFAULT 1000, bank INTEGER DEFAULT 0, debt INTEGER DEFAULT 0,
+    last_daily INTEGER DEFAULT 0, last_work INTEGER DEFAULT 0, last_crime INTEGER DEFAULT 0,
+    last_rob INTEGER DEFAULT 0, last_interest INTEGER DEFAULT 0, is_vip INTEGER DEFAULT 0,
+    married_with TEXT DEFAULT NULL, pet_type TEXT DEFAULT NULL, pet_level INTEGER DEFAULT 1,
+    bounty INTEGER DEFAULT 0, gang_id TEXT DEFAULT NULL, exp INTEGER DEFAULT 0,
+    insurance_until INTEGER DEFAULT 0, quest_work INTEGER DEFAULT 0, quest_gamble INTEGER DEFAULT 0,
+    quest_done INTEGER DEFAULT 0, last_quest_reset INTEGER DEFAULT 0
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS jackpot (id INTEGER PRIMARY KEY, amount INTEGER DEFAULT 50000)`);
   db.run(`CREATE TABLE IF NOT EXISTS gangs (id TEXT PRIMARY KEY, name TEXT, owner_id TEXT, fund INTEGER DEFAULT 0)`);
@@ -93,7 +86,6 @@ const getTitle = (exp) => {
   return { lvl, title: '👑 Vua Sòng Bài' };
 };
 
-// Khai báo toàn bộ danh sách lệnh Slash Commands đầy đủ
 const commands = [
   new SlashCommandBuilder().setName('info').setDescription('Xem thông tin chi tiết về Bot'),
   new SlashCommandBuilder().setName('help').setDescription('Xem menu trợ giúp đầy đủ'),
