@@ -131,23 +131,23 @@ const getTitle = (exp) => {
   return { lvl, title: '👑 Vua Sòng Bài' };
 };
 
-// 4. Register Commands
+// 4. Register Commands (Đã thêm mô tả chuẩn cho tất cả Option)
 const commands = [
   new SlashCommandBuilder().setName('info').setDescription('Xem thông tin chi tiết về Bot và Chủ sở hữu'),
   new SlashCommandBuilder().setName('help').setDescription('Xem menu trợ giúp đầy đủ'),
   new SlashCommandBuilder().setName('sodu').setDescription('Xem số dư ví và ngân hàng'),
   new SlashCommandBuilder().setName('daily').setDescription('Nhận thưởng điểm danh hằng ngày'),
 
-  // [TÍNH NĂNG 6] Rank & Cấp Độ
+  // Rank & Cấp Độ
   new SlashCommandBuilder().setName('rank').setDescription('Xem cấp độ, EXP và danh hiệu cá nhân'),
 
-  // [TÍNH NĂNG 7] Nhiệm Vụ Hàng Ngày
+  // Nhiệm Vụ Hàng Ngày
   new SlashCommandBuilder().setName('quest').setDescription('Xem và nhận thưởng nhiệm vụ hàng ngày'),
 
-  // [TÍNH NĂNG 5] Bảo Hiểm Chống Cướp
+  // Bảo Hiểm Chống Cướp
   new SlashCommandBuilder().setName('baohiem').setDescription('Mua bảo hiểm chống cướp tiền mặt (10.000 xu / 24h)'),
 
-  // [TÍNH NĂNG 2] Vé Số & Lô Đề
+  // Vé Số & Lô Đề
   new SlashCommandBuilder()
     .setName('veso')
     .setDescription('Hệ thống vé số quay thưởng 18:30 hàng ngày')
@@ -157,7 +157,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('setlotterychannel')
     .setDescription('Chọn kênh thông báo kết quả vé số hàng ngày (Admin)')
-    .addChannelOption(o => o.setName('kenh').setDescription('Chọn kênh').setRequired(true))
+    .addChannelOption(o => o.setName('kenh').setDescription('Chọn kênh thông báo').setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   // Cấu hình Kênh Auto Tài Xỉu
@@ -236,14 +236,14 @@ const commands = [
     .setName('truyna')
     .setDescription('Treo thưởng truy nã')
     .addUserOption(o => o.setName('target').setDescription('Người bị truy nã').setRequired(true))
-    .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền').setRequired(true)),
+    .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền treo thưởng').setRequired(true)),
 
   // Tương Tác
   new SlashCommandBuilder()
     .setName('pay')
     .setDescription('Chuyển tiền')
     .addUserOption(o => o.setName('target').setDescription('Người nhận').setRequired(true))
-    .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền').setRequired(true)),
+    .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền chuyển').setRequired(true)),
 
   new SlashCommandBuilder().setName('hug').setDescription('Ôm').addUserOption(o => o.setName('target').setDescription('Người ôm').setRequired(true)),
   new SlashCommandBuilder().setName('kiss').setDescription('Hôn').addUserOption(o => o.setName('target').setDescription('Người hôn').setRequired(true)),
@@ -251,22 +251,43 @@ const commands = [
   new SlashCommandBuilder().setName('pat').setDescription('Xoa đầu').addUserOption(o => o.setName('target').setDescription('Người xoa đầu').setRequired(true)),
 
   // Ngân hàng
-  new SlashCommandBuilder().setName('gui').setDescription('Gửi tiền ngân hàng').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền').setRequired(true)),
-  new SlashCommandBuilder().setName('rut').setDescription('Rút tiền ngân hàng').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền').setRequired(true)),
-  new SlashCommandBuilder().setName('vay').setDescription('Vay tiền').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền').setRequired(true)),
-  new SlashCommandBuilder().setName('tra').setDescription('Trả nợ').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền').setRequired(true)),
+  new SlashCommandBuilder().setName('gui').setDescription('Gửi tiền ngân hàng').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền gửi').setRequired(true)),
+  new SlashCommandBuilder().setName('rut').setDescription('Rút tiền ngân hàng').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền rút').setRequired(true)),
+  new SlashCommandBuilder().setName('vay').setDescription('Vay tiền').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền vay').setRequired(true)),
+  new SlashCommandBuilder().setName('tra').setDescription('Trả nợ').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền trả').setRequired(true)),
   new SlashCommandBuilder().setName('laylai').setDescription('Lấy tiền lãi'),
 
   // Bảng xếp hạng
-  new SlashCommandBuilder().setName('sodu').setDescription('Xem số dư'),
   new SlashCommandBuilder().setName('top').setDescription('Bảng xếp hạng đại gia'),
 
-  // Staff/Owner
-  new SlashCommandBuilder().setName('addmoney').setDescription('Cộng tiền (Owner)').addUserOption(o => o.setName('user').setRequired(true)).addIntegerOption(o => o.setName('sotien').setRequired(true)),
-  new SlashCommandBuilder().setName('setvip').setDescription('Set VIP (Owner)').addUserOption(o => o.setName('user').setRequired(true)),
-  new SlashCommandBuilder().setName('setmoney').setDescription('Cài đặt số tiền (Owner)').addUserOption(o => o.setName('user').setRequired(true)).addIntegerOption(o => o.setName('sotien').setRequired(true)),
-  new SlashCommandBuilder().setName('broadcast').setDescription('Gửi thông báo (Owner)').addStringOption(o => o.setName('noidung').setRequired(true)),
-  new SlashCommandBuilder().setName('lixi').setDescription('Phát lì xì (Owner)').addIntegerOption(o => o.setName('tongtien').setRequired(true)).addIntegerOption(o => o.setName('sobao').setRequired(true))
+  // Staff/Owner Commands (Đã sửa thêm setDescription đầy đủ)
+  new SlashCommandBuilder()
+    .setName('addmoney')
+    .setDescription('Cộng tiền cho người chơi (Owner)')
+    .addUserOption(o => o.setName('user').setDescription('Người chơi được cộng tiền').setRequired(true))
+    .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền muốn cộng').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('setvip')
+    .setDescription('Set VIP cho người chơi (Owner)')
+    .addUserOption(o => o.setName('user').setDescription('Người chơi nhận VIP').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('setmoney')
+    .setDescription('Cài đặt số tiền của người chơi (Owner)')
+    .addUserOption(o => o.setName('user').setDescription('Người chơi cần sửa số dư').setRequired(true))
+    .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền mới').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('broadcast')
+    .setDescription('Gửi thông báo toàn server (Owner)')
+    .addStringOption(o => o.setName('noidung').setDescription('Nội dung thông báo').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('lixi')
+    .setDescription('Phát lì xì (Owner)')
+    .addIntegerOption(o => o.setName('tongtien').setDescription('Tổng tiền lì xì').setRequired(true))
+    .addIntegerOption(o => o.setName('sobao').setDescription('Số lượng bao lì xì').setRequired(true))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -288,7 +309,6 @@ client.once('ready', async () => {
 function startLotteryCron() {
   setInterval(() => {
     const now = new Date();
-    // 18:30 hàng ngày
     if (now.getHours() === 18 && now.getMinutes() === 30 && now.getSeconds() < 10) {
       const luckyNum = Math.floor(Math.random() * 100);
 
@@ -318,7 +338,6 @@ function startLotteryCron() {
             if (ch) ch.send({ embeds: [embed] });
           }
 
-          // Reset lại kho vé số
           db.run(`DELETE FROM lottery_tickets`);
         });
       });
@@ -381,11 +400,11 @@ async function finishTxSession(channel, session) {
       if (bet.choice === result) {
         const winAmt = bet.amount * 2;
         await updateBalance(userId, winAmt);
-        addEXP(userId, 15); // +15 EXP khi thắng
+        addEXP(userId, 15);
         db.run(`UPDATE users SET quest_gamble = quest_gamble + 1 WHERE id = ?`, [userId]);
         summary += `🎉 <@${userId}> thắng **+${bet.amount.toLocaleString()}** xu!\n`;
       } else {
-        addEXP(userId, 5); // +5 EXP dù thua
+        addEXP(userId, 5);
         summary += `💸 <@${userId}> thua **-${bet.amount.toLocaleString()}** xu!\n`;
       }
     }
@@ -465,7 +484,7 @@ client.on('interactionCreate', async (i) => {
   const uData = await getUser(uid);
   checkResetQuest(uData);
 
-  // [TÍNH NĂNG 6] Lệnh /rank
+  // Lệnh /rank
   if (cmd === 'rank') {
     const { lvl, title } = getTitle(uData.exp);
     const expNext = (lvl + 1) * 100;
@@ -481,7 +500,7 @@ client.on('interactionCreate', async (i) => {
     return i.reply({ embeds: [embed] });
   }
 
-  // [TÍNH NĂNG 7] Lệnh /quest
+  // Lệnh /quest
   if (cmd === 'quest') {
     const q1 = uData.quest_work >= 3 ? '✅' : `❌ (${uData.quest_work}/3)`;
     const q2 = uData.quest_gamble >= 3 ? '✅' : `❌ (${uData.quest_gamble}/3)`;
@@ -503,7 +522,7 @@ client.on('interactionCreate', async (i) => {
     return i.reply({ embeds: [embed] });
   }
 
-  // [TÍNH NĂNG 5] Lệnh /baohiem
+  // Lệnh /baohiem
   if (cmd === 'baohiem') {
     const now = Date.now();
     if (uData.insurance_until > now) {
@@ -513,13 +532,13 @@ client.on('interactionCreate', async (i) => {
     if (uData.balance < 10000) return i.reply({ content: '❌ Cần 10.000 xu để mua bảo hiểm!', ephemeral: true });
 
     await updateBalance(uid, -10000);
-    const expireTime = now + 86400000; // 24h
+    const expireTime = now + 86400000;
     db.run(`UPDATE users SET insurance_until = ? WHERE id = ?`, [expireTime, uid]);
 
     return i.reply('🛡️ **Mua thành công gói Bảo Hiểm Chống Cướp (24h)!** Nếu bị cướp, Bảo hiểm sẽ đền bù 80% số tiền bị mất.');
   }
 
-  // [TÍNH NĂNG 2] Lệnh /veso
+  // Lệnh /veso
   if (cmd === 'veso') {
     const sub = options.getSubcommand();
     if (sub === 'buy') {
@@ -593,7 +612,7 @@ client.on('interactionCreate', async (i) => {
     return i.reply({ embeds: [embed] });
   }
 
-  // Lệnh Cướp /rob (Tích hợp Bảo Hiểm)
+  // Lệnh Cướp /rob
   if (cmd === 'rob') {
     const target = options.getUser('target');
     if (target.id === uid) return i.reply({ content: '❌ Không thể tự cướp chính mình!', ephemeral: true });
@@ -631,12 +650,12 @@ client.on('interactionCreate', async (i) => {
 
     const earn = Math.floor(Math.random() * 2000) + 1000;
     db.run(`UPDATE users SET balance = balance + ?, last_work = ?, quest_work = quest_work + 1 WHERE id = ?`, [earn, now, uid]);
-    addEXP(uid, 10); // +10 EXP
+    addEXP(uid, 10);
 
     return i.reply(`💼 Bạn nhận công làm việc **+${earn.toLocaleString()}** xu (+10 EXP)!`);
   }
 
-  // Các lệnh Mini games khác
+  // Chẵn Lẻ
   if (cmd === 'cl') {
     const choice = options.getString('luachon'), bet = options.getInteger('tiencuoc');
     if (bet <= 0 || uData.balance < bet) return i.reply({ content: '❌ Không đủ tiền cược!', ephemeral: true });
@@ -675,7 +694,7 @@ client.on('interactionCreate', async (i) => {
     return;
   }
 
-  // Admin Commands
+  // Owner Commands
   if (cmd === 'addmoney') {
     if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
     const target = options.getUser('user'), amt = options.getInteger('sotien');
