@@ -105,6 +105,10 @@ const getUser = (id) => new Promise((resolve) => {
   });
 });
 
+const getGang = (gangId) => new Promise((resolve) => {
+  db.get(`SELECT * FROM gangs WHERE id = ?`, [gangId], (err, row) => resolve(row));
+});
+
 const updateBalance = (id, amount) => new Promise((resolve) => {
   db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [amount, id], resolve);
 });
@@ -248,6 +252,12 @@ const commands = [
     .setDescription('Cộng tiền cho người chơi (Owner)')
     .addUserOption(o => o.setName('user').setDescription('Người chơi được cộng tiền').setRequired(true))
     .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền muốn cộng').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('setexp')
+    .setDescription('Cài đặt hoặc cộng điểm EXP / Rank cho người chơi (Owner)')
+    .addUserOption(o => o.setName('user').setDescription('Người chơi').setRequired(true))
+    .addIntegerOption(o => o.setName('exp').setDescription('Số điểm EXP muốn cộng thêm (hoặc trừ nếu điền số âm)').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('setvip')
@@ -408,6 +418,33 @@ function startAutoTxLoop() {
 
 // 5. Interaction Handler
 client.on('interactionCreate', async (i) => {
+  // Xử lý nút bấm cầu hôn
+  if (i.isButton() && (i.customId.startsWith('marry_accept_') || i.customId.startsWith('marry_deny_'))) {
+    const [, action, proposerId, targetId] = i.customId.split('_');
+
+    if (i.user.id !== targetId) {
+      return i.reply({ content: '❌ Lời cầu hôn này không dành cho bạn!', ephemeral: true });
+    }
+
+    if (action === 'deny') {
+      return i.update({
+        content: `💔 <@${targetId}> đã từ chối lời cầu hôn của <@${proposerId}>!`,
+        components: []
+      });
+    }
+
+    if (action === 'accept') {
+      db.run(`UPDATE users SET married_with = ? WHERE id = ?`, [targetId, proposerId]);
+      db.run(`UPDATE users SET married_with = ? WHERE id = ?`, [proposerId, targetId]);
+
+      return i.update({
+        content: `🎉 **CHÚC MỪNG HP!** <@${proposerId}> và <@${targetId}> đã chính thức nên duyên vợ chồng! 👩‍❤️‍👨`,
+        components: []
+      });
+    }
+  }
+
+  // Xử lý nút bấm Tài Xỉu
   if (i.isButton()) {
     const session = activeSessions.get(i.channelId);
     if (!session) return i.reply({ content: '❌ Phiên cược đã kết thúc!', ephemeral: true });
@@ -513,13 +550,127 @@ client.on('interactionCreate', async (i) => {
         },
         { 
           name: '👑 Owner / Admin', 
-          value: '`/addmoney` • `/setmoney` • `/setvip` • `/broadcast` • `/lixi`', 
+          value: '`/addmoney` • `/setmoney` • `/setexp` • `/setvip` • `/broadcast` • `/lixi`', 
           inline: false 
         }
       )
       .setFooter({ text: 'Dùng / [tên lệnh] để sử dụng!' });
 
     return i.reply({ embeds: [embed] });
+  }
+
+  // Lệnh Cầu Hôn (/marry)
+  if (cmd === 'marry') {
+    const target = options.getUser('target');
+
+    if (target.id === uid) return i.reply({ content: '❌ Bạn không thể tự kết hôn với chính mình!', ephemeral: true });
+    if (target.bot) return i.reply({ content: '❌ Bạn không thể kết hôn với Bot!', ephemeral: true });
+    if (uData.married_with) return i.reply({ content: `❌ Bạn đã kết hôn với <@${uData.married_with}> rồi!`, ephemeral: true });
+
+    const tData = await getUser(target.id);
+    if (tData.married_with) return i.reply({ content: `❌ <@${target.id}> đã có bạn đời rồi!`, ephemeral: true });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`marry_accept_${uid}_${target.id}`).setLabel('Đồng Ý 💕').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`marry_deny_${uid}_${target.id}`).setLabel('Từ Chối 💔').setStyle(ButtonStyle.Danger)
+    );
+
+    return i.reply({
+      content: `💍 <@${target.id}> ơi! <@${uid}> đang ngỏ lời cầu hôn bạn. Bạn có đồng ý không?`,
+      components: [row]
+    });
+  }
+
+  // Lệnh Ly Hôn (/divorce)
+  if (cmd === 'divorce') {
+    if (!uData.married_with) return i.reply({ content: '❌ Bạn đang độc thân, không thể ly hôn!', ephemeral: true });
+
+    const exPartnerId = uData.married_with;
+    db.run(`UPDATE users SET married_with = NULL WHERE id = ? OR id = ?`, [uid, exPartnerId]);
+
+    return i.reply(`💔 <@${uid}> và <@${exPartnerId}> đã chính thức chia tay...`);
+  }
+
+  // Lệnh Băng Nhóm (/gang)
+  if (cmd === 'gang') {
+    const sub = options.getSubcommand();
+
+    // 1. Tạo Băng Nhóm (/gang create)
+    if (sub === 'create') {
+      if (uData.gang_id) {
+        return i.reply({ content: '❌ Bạn đã ở trong một Băng Nhóm rồi! Hãy rời bang trước khi tạo mới.', ephemeral: true });
+      }
+
+      const cost = 50000; // Phí tạo bang
+      if (uData.balance < cost) {
+        return i.reply({ content: `❌ Chi phí thành lập Băng Nhóm là **${cost.toLocaleString()}** xu! Bạn không đủ tiền.`, ephemeral: true });
+      }
+
+      const gangName = options.getString('tenbang');
+      const gangId = `gang_${Date.now()}`;
+
+      // Trừ tiền và tạo Bang
+      await updateBalance(uid, -cost);
+      db.run(`INSERT INTO gangs (id, name, owner_id, fund) VALUES (?, ?, ?, ?)`, [gangId, gangName, uid, 0]);
+      db.run(`UPDATE users SET gang_id = ? WHERE id = ?`, [gangId, uid]);
+
+      const embed = new EmbedBuilder()
+        .setColor('#e74c3c')
+        .setTitle('🏴‍☠️ THÀNH LẬP BĂNG NHÓM THÀNH CÔNG!')
+        .setDescription(`Băng nhóm **${gangName}** đã được lập bởi Bang chủ <@${uid}>!`)
+        .addFields(
+          { name: '💰 Phí thành lập', value: `${cost.toLocaleString()} xu`, inline: true },
+          { name: '🛡️ Quỹ bang ban đầu', value: '0 xu', inline: true }
+        );
+
+      return i.reply({ embeds: [embed] });
+    }
+
+    // 2. Xem thông tin Băng Nhóm (/gang info)
+    if (sub === 'info') {
+      if (!uData.gang_id) {
+        return i.reply({ content: '❌ Bạn hiện tại chưa gia nhập Băng Nhóm nào!', ephemeral: true });
+      }
+
+      const gang = await getGang(uData.gang_id);
+      if (!gang) {
+        return i.reply({ content: '❌ Băng nhóm của bạn không tồn tại hoặc đã bị giải tán!', ephemeral: true });
+      }
+
+      // Đếm số lượng thành viên
+      db.all(`SELECT id FROM users WHERE gang_id = ?`, [gang.id], (err, members) => {
+        const memberCount = members ? members.length : 1;
+
+        const embed = new EmbedBuilder()
+          .setColor('#9b59b6')
+          .setTitle(`🏴‍☠️ BĂNG NHÓM: ${gang.name}`)
+          .addFields(
+            { name: '👑 Bang Chủ', value: `<@${gang.owner_id}>`, inline: true },
+            { name: '👥 Thành Viên', value: `\`${memberCount} thành viên\``, inline: true },
+            { name: '💰 Quỹ Băng Nhóm', value: `**${(gang.fund || 0).toLocaleString()}** xu`, inline: false }
+          )
+          .setFooter({ text: 'Gia nhập băng nhóm để cùng nhau xưng bá Casino!' });
+
+        return i.reply({ embeds: [embed] });
+      });
+      return;
+    }
+  }
+
+  // Lệnh Set EXP / Add Rank dành cho Owner (/setexp)
+  if (cmd === 'setexp') {
+    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
+
+    const target = options.getUser('user');
+    const expAmount = options.getInteger('exp');
+
+    await getUser(target.id);
+    addEXP(target.id, expAmount);
+
+    const updatedData = await getUser(target.id);
+    const { lvl, title } = getTitle(updatedData.exp);
+
+    return i.reply(`⚡ Đã cộng/trừ **${expAmount} EXP** cho <@${target.id}>!\n📊 EXP hiện tại: **${updatedData.exp}** (Cấp **Lvl ${lvl}** - **${title}**)`);
   }
 
   if (cmd === 'rank') {
