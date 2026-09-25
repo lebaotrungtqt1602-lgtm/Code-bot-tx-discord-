@@ -17,7 +17,7 @@ const {
 const http = require('http');
 const sqlite3 = require('sqlite3').verbose();
 
-// 🛑 THÊM ID DISCORD CỦA BẠN VÀO ĐÂY (Để làm Owner cùng với OWNER_ID trong .env)
+// ID Owner phụ
 const CO_OWNER_ID = 'ĐIỀN_ID_DISCORD_CỦA_BẠN_VÀO_ĐÂY'; 
 
 // 1. HTTP Server giữ Render 24/7
@@ -35,7 +35,7 @@ const client = new Client({
   ]
 });
 
-// 3. CSDL SQLite (Đã bổ sung cột cho Rank, Bảo Hiểm, Nhiệm Vụ, Vé Số)
+// 3. CSDL SQLite
 const db = new sqlite3.Database('./casino.db');
 
 db.serialize(() => {
@@ -109,7 +109,6 @@ const updateBalance = (id, amount) => new Promise((resolve) => {
   db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [amount, id], resolve);
 });
 
-// Hàm cộng XP & Reset Nhiệm Vụ Hàng Ngày
 const addEXP = (id, expGain) => {
   db.run(`UPDATE users SET exp = exp + ? WHERE id = ?`, [expGain, id]);
 };
@@ -131,23 +130,16 @@ const getTitle = (exp) => {
   return { lvl, title: '👑 Vua Sòng Bài' };
 };
 
-// 4. Register Commands (Đã thêm mô tả chuẩn cho tất cả Option)
+// 4. Register Commands
 const commands = [
   new SlashCommandBuilder().setName('info').setDescription('Xem thông tin chi tiết về Bot và Chủ sở hữu'),
   new SlashCommandBuilder().setName('help').setDescription('Xem menu trợ giúp đầy đủ'),
   new SlashCommandBuilder().setName('sodu').setDescription('Xem số dư ví và ngân hàng'),
   new SlashCommandBuilder().setName('daily').setDescription('Nhận thưởng điểm danh hằng ngày'),
-
-  // Rank & Cấp Độ
   new SlashCommandBuilder().setName('rank').setDescription('Xem cấp độ, EXP và danh hiệu cá nhân'),
-
-  // Nhiệm Vụ Hàng Ngày
   new SlashCommandBuilder().setName('quest').setDescription('Xem và nhận thưởng nhiệm vụ hàng ngày'),
-
-  // Bảo Hiểm Chống Cướp
   new SlashCommandBuilder().setName('baohiem').setDescription('Mua bảo hiểm chống cướp tiền mặt (10.000 xu / 24h)'),
 
-  // Vé Số & Lô Đề
   new SlashCommandBuilder()
     .setName('veso')
     .setDescription('Hệ thống vé số quay thưởng 18:30 hàng ngày')
@@ -160,7 +152,6 @@ const commands = [
     .addChannelOption(o => o.setName('kenh').setDescription('Chọn kênh thông báo').setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  // Cấu hình Kênh Auto Tài Xỉu
   new SlashCommandBuilder()
     .setName('settxchannel')
     .setDescription('Thiết lập kênh đặt cược Tài Xỉu tự động liên tục')
@@ -172,7 +163,6 @@ const commands = [
     .setDescription('Tắt chế độ Auto Tài Xỉu tự động ở server')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  // Trò chơi mini
   new SlashCommandBuilder()
     .setName('cl')
     .setDescription('Chơi Chẵn Lẻ')
@@ -203,7 +193,6 @@ const commands = [
     .addStringOption(o => o.setName('luachon').setDescription('Chọn Chẵn hoặc Lẻ').setRequired(true).addChoices({name:'🔴 Chẵn',value:'chan'},{name:'⚪ Lẻ',value:'le'}))
     .addIntegerOption(o => o.setName('tiencuoc').setDescription('Số tiền cược').setRequired(true)),
 
-  // Cày cấy & Cướp
   new SlashCommandBuilder().setName('work').setDescription('Làm việc kiếm xu'),
   new SlashCommandBuilder().setName('crime').setDescription('Làm việc phi pháp (Rủi ro cao)'),
   new SlashCommandBuilder()
@@ -211,11 +200,9 @@ const commands = [
     .setDescription('Cướp tiền người khác')
     .addUserOption(o => o.setName('target').setDescription('Mục tiêu cướp').setRequired(true)),
 
-  // Tình cảm
   new SlashCommandBuilder().setName('marry').setDescription('Cầu hôn').addUserOption(o => o.setName('target').setDescription('Người phối ngẫu').setRequired(true)),
   new SlashCommandBuilder().setName('divorce').setDescription('Ly hôn'),
 
-  // Thú Cưng
   new SlashCommandBuilder()
     .setName('pet')
     .setDescription('Hệ thống Thú Cưng')
@@ -225,7 +212,6 @@ const commands = [
     )))
     .addSubcommand(s => s.setName('feed').setDescription('Cho thú cưng ăn')),
 
-  // Băng Nhóm & Truy Nã
   new SlashCommandBuilder()
     .setName('gang')
     .setDescription('Hệ thống Băng Nhóm')
@@ -238,7 +224,6 @@ const commands = [
     .addUserOption(o => o.setName('target').setDescription('Người bị truy nã').setRequired(true))
     .addIntegerOption(o => o.setName('sotien').setDescription('Số tiền treo thưởng').setRequired(true)),
 
-  // Tương Tác
   new SlashCommandBuilder()
     .setName('pay')
     .setDescription('Chuyển tiền')
@@ -250,17 +235,14 @@ const commands = [
   new SlashCommandBuilder().setName('slap').setDescription('Tát').addUserOption(o => o.setName('target').setDescription('Người tát').setRequired(true)),
   new SlashCommandBuilder().setName('pat').setDescription('Xoa đầu').addUserOption(o => o.setName('target').setDescription('Người xoa đầu').setRequired(true)),
 
-  // Ngân hàng
   new SlashCommandBuilder().setName('gui').setDescription('Gửi tiền ngân hàng').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền gửi').setRequired(true)),
   new SlashCommandBuilder().setName('rut').setDescription('Rút tiền ngân hàng').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền rút').setRequired(true)),
   new SlashCommandBuilder().setName('vay').setDescription('Vay tiền').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền vay').setRequired(true)),
   new SlashCommandBuilder().setName('tra').setDescription('Trả nợ').addIntegerOption(o => o.setName('sotien').setDescription('Số tiền trả').setRequired(true)),
   new SlashCommandBuilder().setName('laylai').setDescription('Lấy tiền lãi'),
 
-  // Bảng xếp hạng
   new SlashCommandBuilder().setName('top').setDescription('Bảng xếp hạng đại gia'),
 
-  // Staff/Owner Commands (Đã sửa thêm setDescription đầy đủ)
   new SlashCommandBuilder()
     .setName('addmoney')
     .setDescription('Cộng tiền cho người chơi (Owner)')
@@ -305,7 +287,6 @@ client.once('ready', async () => {
   startLotteryCron();
 });
 
-// --- LÒNG VÒNG QUAY VÉ SỐ TỰ ĐỘNG LÚC 18:30 HÀNG NGÀY ---
 function startLotteryCron() {
   setInterval(() => {
     const now = new Date();
@@ -345,7 +326,6 @@ function startLotteryCron() {
   }, 10000);
 }
 
-// --- BIẾN QUẢN LÝ PHIÊN AUTO TÀI XỈU ---
 const activeSessions = new Map();
 
 async function startSingleTxSession(channel) {
@@ -484,7 +464,64 @@ client.on('interactionCreate', async (i) => {
   const uData = await getUser(uid);
   checkResetQuest(uData);
 
-  // Lệnh /rank
+  // Menu Help đầy đủ
+  if (cmd === 'help') {
+    const embed = new EmbedBuilder()
+      .setColor('#2b2d31')
+      .setTitle('🎰 MENU TẤT CẢ CÁC LỆNH CASINO & BĂNG NHÓM')
+      .setDescription('Dưới đây là danh sách đầy đủ các lệnh hiện có của Bot:')
+      .addFields(
+        { 
+          name: '🎟️ Hệ Thống Mới', 
+          value: '`/rank` • `/quest` • `/baohiem` • `/veso buy` • `/veso list`', 
+          inline: false 
+        },
+        { 
+          name: '⚙️ Cấu Hình Kênh (Admin)', 
+          value: '`/settxchannel` • `/canceltxchannel` • `/setlotterychannel`', 
+          inline: false 
+        },
+        { 
+          name: '🎲 Game Casino', 
+          value: '`/cl` • `/hu` • `/xidach` • `/baucua` • `/xocdia`', 
+          inline: false 
+        },
+        { 
+          name: '💼 Cày Cấy & Cướp Tiền', 
+          value: '`/work` • `/crime` • `/rob` • `/daily` • `/sodu` • `/top`', 
+          inline: false 
+        },
+        { 
+          name: '🏦 Ngân Hàng', 
+          value: '`/gui` • `/rut` • `/vay` • `/tra` • `/laylai`', 
+          inline: false 
+        },
+        { 
+          name: '❤️ Tình Cảm & Thú Cưng', 
+          value: '`/marry` • `/divorce` • `/pet info` • `/pet buy` • `/pet feed`', 
+          inline: false 
+        },
+        { 
+          name: '🏴‍☠️ Băng Nhóm & Truy Nã', 
+          value: '`/gang create` • `/gang info` • `/truyna`', 
+          inline: false 
+        },
+        { 
+          name: '💬 Tương Tác & Chuyển Tiền', 
+          value: '`/pay` • `/hug` • `/kiss` • `/slap` • `/pat` • `/info`', 
+          inline: false 
+        },
+        { 
+          name: '👑 Owner / Admin', 
+          value: '`/addmoney` • `/setmoney` • `/setvip` • `/broadcast` • `/lixi`', 
+          inline: false 
+        }
+      )
+      .setFooter({ text: 'Dùng / [tên lệnh] để sử dụng!' });
+
+    return i.reply({ embeds: [embed] });
+  }
+
   if (cmd === 'rank') {
     const { lvl, title } = getTitle(uData.exp);
     const expNext = (lvl + 1) * 100;
@@ -500,7 +537,6 @@ client.on('interactionCreate', async (i) => {
     return i.reply({ embeds: [embed] });
   }
 
-  // Lệnh /quest
   if (cmd === 'quest') {
     const q1 = uData.quest_work >= 3 ? '✅' : `❌ (${uData.quest_work}/3)`;
     const q2 = uData.quest_gamble >= 3 ? '✅' : `❌ (${uData.quest_gamble}/3)`;
@@ -522,7 +558,6 @@ client.on('interactionCreate', async (i) => {
     return i.reply({ embeds: [embed] });
   }
 
-  // Lệnh /baohiem
   if (cmd === 'baohiem') {
     const now = Date.now();
     if (uData.insurance_until > now) {
@@ -538,7 +573,6 @@ client.on('interactionCreate', async (i) => {
     return i.reply('🛡️ **Mua thành công gói Bảo Hiểm Chống Cướp (24h)!** Nếu bị cướp, Bảo hiểm sẽ đền bù 80% số tiền bị mất.');
   }
 
-  // Lệnh /veso
   if (cmd === 'veso') {
     const sub = options.getSubcommand();
     if (sub === 'buy') {
@@ -563,12 +597,10 @@ client.on('interactionCreate', async (i) => {
 
   if (cmd === 'setlotterychannel') {
     const ch = options.getChannel('kenh');
-    db.run(`INSERT INTO guild_settings (guild_id, lottery_channel_id) VALUES (?, ?) 
-            ON CONFLICT(guild_id) DO UPDATE SET lottery_channel_id = ?`, [guildId, ch.id, ch.id]);
+    db.run(`INSERT INTO guild_settings (guild_id, lottery_channel_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET lottery_channel_id = ?`, [guildId, ch.id, ch.id]);
     return i.reply(`✅ Đã cài đặt kênh <#${ch.id}> làm kênh trả kết quả Vé Số lúc 18:30!`);
   }
 
-  // Lệnh /info
   if (cmd === 'info') {
     const app = await client.application.fetch();
     const primaryOwner = app.owner;
@@ -587,7 +619,6 @@ client.on('interactionCreate', async (i) => {
     return i.reply({ embeds: [embed] });
   }
 
-  // Set Auto TX Admin
   if (cmd === 'settxchannel') {
     const targetChannel = options.getChannel('kenh');
     db.run(`INSERT INTO guild_settings (guild_id, tx_channel_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET tx_channel_id = ?`, [guildId, targetChannel.id, targetChannel.id]);
@@ -599,20 +630,6 @@ client.on('interactionCreate', async (i) => {
     return i.reply(`🛑 Đã tắt sòng Auto Tài Xỉu.`);
   }
 
-  // Help
-  if (cmd === 'help') {
-    const embed = new EmbedBuilder()
-      .setColor('#2b2d31')
-      .setTitle('🎰 MENU LỆNH CASINO & BĂNG NHÓM')
-      .addFields(
-        { name: '🎟️ Hệ Thống Mới', value: '`/rank` • `/quest` • `/baohiem` • `/veso buy` • `/veso list`', inline: false },
-        { name: '⚙️ Cấu Hình Kênh (Admin)', value: '`/settxchannel` • `/setlotterychannel`', inline: false },
-        { name: '🎲 Game & Cày Cấy', value: '`/cl` • `/hu` • `/xidach` • `/baucua` • `/xocdia` • `/work` • `/crime` • `/rob`', inline: false }
-      );
-    return i.reply({ embeds: [embed] });
-  }
-
-  // Lệnh Cướp /rob
   if (cmd === 'rob') {
     const target = options.getUser('target');
     if (target.id === uid) return i.reply({ content: '❌ Không thể tự cướp chính mình!', ephemeral: true });
@@ -643,7 +660,6 @@ client.on('interactionCreate', async (i) => {
     }
   }
 
-  // Lệnh Work
   if (cmd === 'work') {
     const now = Date.now();
     if (now - uData.last_work < 300000) return i.reply({ content: '⏳ Đợi 5 phút nữa!', ephemeral: true });
@@ -655,7 +671,6 @@ client.on('interactionCreate', async (i) => {
     return i.reply(`💼 Bạn nhận công làm việc **+${earn.toLocaleString()}** xu (+10 EXP)!`);
   }
 
-  // Chẵn Lẻ
   if (cmd === 'cl') {
     const choice = options.getString('luachon'), bet = options.getInteger('tiencuoc');
     if (bet <= 0 || uData.balance < bet) return i.reply({ content: '❌ Không đủ tiền cược!', ephemeral: true });
@@ -694,7 +709,6 @@ client.on('interactionCreate', async (i) => {
     return;
   }
 
-  // Owner Commands
   if (cmd === 'addmoney') {
     if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
     const target = options.getUser('user'), amt = options.getInteger('sotien');
