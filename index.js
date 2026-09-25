@@ -115,7 +115,7 @@ client.on('interactionCreate', async (interaction) => {
   if (user.is_banned && !isOwner) return interaction.reply({ content: '⛔ Bạn đã bị cấm sử dụng Bot!', ephemeral: true });
 
   if (commandName === 'help') {
-    const embed = new EmbedBuilder().setTitle('🎲 HỆ THỐNG BOT GAMING MULTI-FUNCTIONAL').setColor('#00FF7F')
+    const embed = new EmbedBuilder().setTitle('🎲 HỆ THỐNG BOT TÀI XỈU JangJiii').setColor('#00FF7F')
       .addFields(
         { name: '🎮 Trò chơi', value: '`/tx` • `/cl` • `/hu`' },
         { name: '⛏️ Cày Cấy & Cướp', value: '`/work` • `/crime` • `/rob` • `/daily`' },
