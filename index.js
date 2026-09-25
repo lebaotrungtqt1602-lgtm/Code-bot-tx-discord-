@@ -17,10 +17,10 @@ const {
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 
-// ID Chủ Bot (Owner)
-const CO_OWNER_ID = 'DIEN_ID_CUA_BAN'; 
+// ID Chủ Bot (Owner) - Thay ID của ní vào đây
+const CO_OWNER_ID = '@paw162'; 
 
-// Khởi tạo Express Server giữ Render 24/7 chống lỗi Web Service
+// Khởi tạo Express Server giữ Render 24/7 (Bắt buộc cho Web Service trên Render)
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.status(200).send('Bot Casino is running live 24/7!'));
@@ -345,12 +345,15 @@ client.on('interactionCreate', async (i) => {
     }
   }
 
+  // Sửa lỗi bất đồng bộ cho lệnh top
   if (cmd === 'top') {
-    db.all(`SELECT id, balance + bank as total FROM users ORDER BY total DESC LIMIT 5`, [], (err, rows) => {
-      let txt = rows ? rows.map((r, idx) => `**#${idx + 1}** <@${r.id}>: **${r.total.toLocaleString()}** xu`).join('\n') : 'Trống';
-      return i.editReply({ embeds: [new EmbedBuilder().setTitle('🏆 BẢNG XẾP HẠNG ĐẠI GIA').setDescription(txt)] });
+    return new Promise((resolve) => {
+      db.all(`SELECT id, balance + bank as total FROM users ORDER BY total DESC LIMIT 5`, [], async (err, rows) => {
+        let txt = rows && rows.length > 0 ? rows.map((r, idx) => `**#${idx + 1}** <@${r.id}>: **${r.total.toLocaleString()}** xu`).join('\n') : 'Trống';
+        await i.editReply({ embeds: [new EmbedBuilder().setTitle('🏆 BẢNG XẾP HẠNG ĐẠI GIA').setDescription(txt)] });
+        resolve();
+      });
     });
-    return;
   }
 
   if (cmd === 'setexp') {
@@ -380,6 +383,11 @@ client.on('interactionCreate', async (i) => {
   if (cmd === 'rank') {
     const { lvl, title } = getTitle(uData.exp);
     return i.editReply(`📊 Cấp độ: **Lvl ${lvl}** | Danh hiệu: **${title}** | EXP: **${uData.exp}**`);
+  }
+
+  // Bổ sung phản hồi cho các lệnh chưa code logic để tránh đứng hình
+  if (cmd === 'quest' || cmd === 'baohiem' || cmd === 'veso' || cmd === 'setlotterychannel' || cmd === 'settxchannel' || cmd === 'canceltxchannel') {
+    return i.editReply('⚠️ Tính năng này đang được cập nhật thêm!');
   }
 });
 
