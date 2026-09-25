@@ -17,8 +17,8 @@ const {
 const http = require('http');
 const sqlite3 = require('sqlite3').verbose();
 
-// ID Owner phụ
-const CO_OWNER_ID = 'ĐIỀN_ID_DISCORD_CỦA_BẠN_VÀO_ĐÂY'; 
+// ID Discord của bạn (Chủ Bot / Owner) - Hãy dán ID dạng chuỗi số vào đây nếu file .env chưa có OWNER_ID
+const CO_OWNER_ID = '@paw162'; 
 
 // 1. HTTP Server giữ Render 24/7
 http.createServer((req, res) => {
@@ -89,15 +89,17 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO jackpot (id, amount) VALUES (1, 50000)`);
 });
 
+// Các hàm Helper chuẩn hóa Async/Promise
 const getUser = (id) => new Promise((resolve) => {
   db.get(`SELECT * FROM users WHERE id = ?`, [id], (err, row) => {
     if (!row) {
-      db.run(`INSERT INTO users (id) VALUES (?)`, [id]);
-      resolve({ 
-        id, balance: 1000, bank: 0, debt: 0, last_daily: 0, last_work: 0, 
-        last_crime: 0, last_rob: 0, last_interest: 0, is_vip: 0, married_with: null, 
-        pet_type: null, pet_level: 1, bounty: 0, gang_id: null, exp: 0, 
-        insurance_until: 0, quest_work: 0, quest_gamble: 0, quest_done: 0, last_quest_reset: 0 
+      db.run(`INSERT INTO users (id) VALUES (?)`, [id], () => {
+        resolve({ 
+          id, balance: 1000, bank: 0, debt: 0, last_daily: 0, last_work: 0, 
+          last_crime: 0, last_rob: 0, last_interest: 0, is_vip: 0, married_with: null, 
+          pet_type: null, pet_level: 1, bounty: 0, gang_id: null, exp: 0, 
+          insurance_until: 0, quest_work: 0, quest_gamble: 0, quest_done: 0, last_quest_reset: 0 
+        });
       });
     } else {
       resolve(row);
@@ -113,9 +115,9 @@ const updateBalance = (id, amount) => new Promise((resolve) => {
   db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [amount, id], resolve);
 });
 
-const addEXP = (id, expGain) => {
-  db.run(`UPDATE users SET exp = exp + ? WHERE id = ?`, [expGain, id]);
-};
+const addEXP = (id, expGain) => new Promise((resolve) => {
+  db.run(`UPDATE users SET exp = exp + ? WHERE id = ?`, [expGain, id], resolve);
+});
 
 const checkResetQuest = (uData) => {
   const now = Date.now();
@@ -390,11 +392,11 @@ async function finishTxSession(channel, session) {
       if (bet.choice === result) {
         const winAmt = bet.amount * 2;
         await updateBalance(userId, winAmt);
-        addEXP(userId, 15);
+        await addEXP(userId, 15);
         db.run(`UPDATE users SET quest_gamble = quest_gamble + 1 WHERE id = ?`, [userId]);
         summary += `🎉 <@${userId}> thắng **+${bet.amount.toLocaleString()}** xu!\n`;
       } else {
-        addEXP(userId, 5);
+        await addEXP(userId, 5);
         summary += `💸 <@${userId}> thua **-${bet.amount.toLocaleString()}** xu!\n`;
       }
     }
@@ -416,9 +418,9 @@ function startAutoTxLoop() {
   }, 10000);
 }
 
-// 5. Interaction Handler
+// 5. Interaction Handler (Đã bọc chống timeout)
 client.on('interactionCreate', async (i) => {
-  // Xử lý nút bấm cầu hôn
+  // Xử lý Nút Bấm Cầu Hôn
   if (i.isButton() && (i.customId.startsWith('marry_accept_') || i.customId.startsWith('marry_deny_'))) {
     const [, action, proposerId, targetId] = i.customId.split('_');
 
@@ -444,7 +446,7 @@ client.on('interactionCreate', async (i) => {
     }
   }
 
-  // Xử lý nút bấm Tài Xỉu
+  // Xử lý Nút Bấm Tài Xỉu
   if (i.isButton()) {
     const session = activeSessions.get(i.channelId);
     if (!session) return i.reply({ content: '❌ Phiên cược đã kết thúc!', ephemeral: true });
@@ -470,6 +472,7 @@ client.on('interactionCreate', async (i) => {
     }
   }
 
+  // Xử lý Modal Đặt Cược
   if (i.isModalSubmit() && i.customId.startsWith('tx_modal_')) {
     const session = activeSessions.get(i.channelId);
     if (!session) return i.reply({ content: '❌ Phiên cược đã kết thúc!', ephemeral: true });
@@ -494,6 +497,9 @@ client.on('interactionCreate', async (i) => {
 
   if (!i.isChatInputCommand()) return;
 
+  // XỬ LÝ LỆNH SLASH COMMAND (Tự động DeferReply để chống lỗi Timeout)
+  await i.deferReply();
+
   const { commandName: cmd, user, options, guildId } = i;
   const uid = user.id;
   const isBotOwner = (id) => id === process.env.OWNER_ID || id === CO_OWNER_ID;
@@ -501,115 +507,72 @@ client.on('interactionCreate', async (i) => {
   const uData = await getUser(uid);
   checkResetQuest(uData);
 
-  // Menu Help đầy đủ
+  // Menu Help
   if (cmd === 'help') {
     const embed = new EmbedBuilder()
       .setColor('#2b2d31')
       .setTitle('🎰 MENU TẤT CẢ CÁC LỆNH CASINO & BĂNG NHÓM')
       .setDescription('Dưới đây là danh sách đầy đủ các lệnh hiện có của Bot:')
       .addFields(
-        { 
-          name: '🎟️ Hệ Thống Mới', 
-          value: '`/rank` • `/quest` • `/baohiem` • `/veso buy` • `/veso list`', 
-          inline: false 
-        },
-        { 
-          name: '⚙️ Cấu Hình Kênh (Admin)', 
-          value: '`/settxchannel` • `/canceltxchannel` • `/setlotterychannel`', 
-          inline: false 
-        },
-        { 
-          name: '🎲 Game Casino', 
-          value: '`/cl` • `/hu` • `/xidach` • `/baucua` • `/xocdia`', 
-          inline: false 
-        },
-        { 
-          name: '💼 Cày Cấy & Cướp Tiền', 
-          value: '`/work` • `/crime` • `/rob` • `/daily` • `/sodu` • `/top`', 
-          inline: false 
-        },
-        { 
-          name: '🏦 Ngân Hàng', 
-          value: '`/gui` • `/rut` • `/vay` • `/tra` • `/laylai`', 
-          inline: false 
-        },
-        { 
-          name: '❤️ Tình Cảm & Thú Cưng', 
-          value: '`/marry` • `/divorce` • `/pet info` • `/pet buy` • `/pet feed`', 
-          inline: false 
-        },
-        { 
-          name: '🏴‍☠️ Băng Nhóm & Truy Nã', 
-          value: '`/gang create` • `/gang info` • `/truyna`', 
-          inline: false 
-        },
-        { 
-          name: '💬 Tương Tác & Chuyển Tiền', 
-          value: '`/pay` • `/hug` • `/kiss` • `/slap` • `/pat` • `/info`', 
-          inline: false 
-        },
-        { 
-          name: '👑 Owner / Admin', 
-          value: '`/addmoney` • `/setmoney` • `/setexp` • `/setvip` • `/broadcast` • `/lixi`', 
-          inline: false 
-        }
+        { name: '🎟️ Hệ Thống Mới', value: '`/rank` • `/quest` • `/baohiem` • `/veso buy` • `/veso list`', inline: false },
+        { name: '⚙️ Cấu Hình Kênh (Admin)', value: '`/settxchannel` • `/canceltxchannel` • `/setlotterychannel`', inline: false },
+        { name: '🎲 Game Casino', value: '`/cl` • `/hu` • `/xidach` • `/baucua` • `/xocdia`', inline: false },
+        { name: '💼 Cày Cấy & Cướp Tiền', value: '`/work` • `/crime` • `/rob` • `/daily` • `/sodu` • `/top`', inline: false },
+        { name: '🏦 Ngân Hàng', value: '`/gui` • `/rut` • `/vay` • `/tra` • `/laylai`', inline: false },
+        { name: '❤️ Tình Cảm & Thú Cưng', value: '`/marry` • `/divorce` • `/pet info` • `/pet buy` • `/pet feed`', inline: false },
+        { name: '🏴‍☠️ Băng Nhóm & Truy Nã', value: '`/gang create` • `/gang info` • `/truyna`', inline: false },
+        { name: '💬 Tương Tác & Chuyển Tiền', value: '`/pay` • `/hug` • `/kiss` • `/slap` • `/pat` • `/info`', inline: false },
+        { name: '👑 Owner / Admin', value: '`/addmoney` • `/setmoney` • `/setexp` • `/setvip` • `/broadcast` • `/lixi`', inline: false }
       )
       .setFooter({ text: 'Dùng / [tên lệnh] để sử dụng!' });
 
-    return i.reply({ embeds: [embed] });
+    return i.editReply({ embeds: [embed] });
   }
 
-  // Lệnh Cầu Hôn (/marry)
+  // Cầu Hôn
   if (cmd === 'marry') {
     const target = options.getUser('target');
-
-    if (target.id === uid) return i.reply({ content: '❌ Bạn không thể tự kết hôn với chính mình!', ephemeral: true });
-    if (target.bot) return i.reply({ content: '❌ Bạn không thể kết hôn với Bot!', ephemeral: true });
-    if (uData.married_with) return i.reply({ content: `❌ Bạn đã kết hôn với <@${uData.married_with}> rồi!`, ephemeral: true });
+    if (target.id === uid) return i.editReply('❌ Bạn không thể tự kết hôn với chính mình!');
+    if (target.bot) return i.editReply('❌ Bạn không thể kết hôn với Bot!');
+    if (uData.married_with) return i.editReply(`❌ Bạn đã kết hôn với <@${uData.married_with}> rồi!`);
 
     const tData = await getUser(target.id);
-    if (tData.married_with) return i.reply({ content: `❌ <@${target.id}> đã có bạn đời rồi!`, ephemeral: true });
+    if (tData.married_with) return i.editReply(`❌ <@${target.id}> đã có bạn đời rồi!`);
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`marry_accept_${uid}_${target.id}`).setLabel('Đồng Ý 💕').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`marry_deny_${uid}_${target.id}`).setLabel('Từ Chối 💔').setStyle(ButtonStyle.Danger)
     );
 
-    return i.reply({
+    return i.editReply({
       content: `💍 <@${target.id}> ơi! <@${uid}> đang ngỏ lời cầu hôn bạn. Bạn có đồng ý không?`,
       components: [row]
     });
   }
 
-  // Lệnh Ly Hôn (/divorce)
+  // Ly Hôn
   if (cmd === 'divorce') {
-    if (!uData.married_with) return i.reply({ content: '❌ Bạn đang độc thân, không thể ly hôn!', ephemeral: true });
+    if (!uData.married_with) return i.editReply('❌ Bạn đang độc thân, không thể ly hôn!');
 
     const exPartnerId = uData.married_with;
     db.run(`UPDATE users SET married_with = NULL WHERE id = ? OR id = ?`, [uid, exPartnerId]);
 
-    return i.reply(`💔 <@${uid}> và <@${exPartnerId}> đã chính thức chia tay...`);
+    return i.editReply(`💔 <@${uid}> và <@${exPartnerId}> đã chính thức chia tay...`);
   }
 
-  // Lệnh Băng Nhóm (/gang)
+  // Băng Nhóm
   if (cmd === 'gang') {
     const sub = options.getSubcommand();
 
-    // 1. Tạo Băng Nhóm (/gang create)
     if (sub === 'create') {
-      if (uData.gang_id) {
-        return i.reply({ content: '❌ Bạn đã ở trong một Băng Nhóm rồi! Hãy rời bang trước khi tạo mới.', ephemeral: true });
-      }
+      if (uData.gang_id) return i.editReply('❌ Bạn đã ở trong một Băng Nhóm rồi!');
 
-      const cost = 50000; // Phí tạo bang
-      if (uData.balance < cost) {
-        return i.reply({ content: `❌ Chi phí thành lập Băng Nhóm là **${cost.toLocaleString()}** xu! Bạn không đủ tiền.`, ephemeral: true });
-      }
+      const cost = 50000;
+      if (uData.balance < cost) return i.editReply(`❌ Chi phí thành lập Băng Nhóm là **${cost.toLocaleString()}** xu!`);
 
       const gangName = options.getString('tenbang');
       const gangId = `gang_${Date.now()}`;
 
-      // Trừ tiền và tạo Bang
       await updateBalance(uid, -cost);
       db.run(`INSERT INTO gangs (id, name, owner_id, fund) VALUES (?, ?, ?, ?)`, [gangId, gangName, uid, 0]);
       db.run(`UPDATE users SET gang_id = ? WHERE id = ?`, [gangId, uid]);
@@ -623,21 +586,15 @@ client.on('interactionCreate', async (i) => {
           { name: '🛡️ Quỹ bang ban đầu', value: '0 xu', inline: true }
         );
 
-      return i.reply({ embeds: [embed] });
+      return i.editReply({ embeds: [embed] });
     }
 
-    // 2. Xem thông tin Băng Nhóm (/gang info)
     if (sub === 'info') {
-      if (!uData.gang_id) {
-        return i.reply({ content: '❌ Bạn hiện tại chưa gia nhập Băng Nhóm nào!', ephemeral: true });
-      }
+      if (!uData.gang_id) return i.editReply('❌ Bạn hiện tại chưa gia nhập Băng Nhóm nào!');
 
       const gang = await getGang(uData.gang_id);
-      if (!gang) {
-        return i.reply({ content: '❌ Băng nhóm của bạn không tồn tại hoặc đã bị giải tán!', ephemeral: true });
-      }
+      if (!gang) return i.editReply('❌ Băng nhóm của bạn không tồn tại!');
 
-      // Đếm số lượng thành viên
       db.all(`SELECT id FROM users WHERE gang_id = ?`, [gang.id], (err, members) => {
         const memberCount = members ? members.length : 1;
 
@@ -648,31 +605,31 @@ client.on('interactionCreate', async (i) => {
             { name: '👑 Bang Chủ', value: `<@${gang.owner_id}>`, inline: true },
             { name: '👥 Thành Viên', value: `\`${memberCount} thành viên\``, inline: true },
             { name: '💰 Quỹ Băng Nhóm', value: `**${(gang.fund || 0).toLocaleString()}** xu`, inline: false }
-          )
-          .setFooter({ text: 'Gia nhập băng nhóm để cùng nhau xưng bá Casino!' });
+          );
 
-        return i.reply({ embeds: [embed] });
+        return i.editReply({ embeds: [embed] });
       });
       return;
     }
   }
 
-  // Lệnh Set EXP / Add Rank dành cho Owner (/setexp)
+  // Set EXP dành cho Owner
   if (cmd === 'setexp') {
-    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
+    if (!isBotOwner(uid)) return i.editReply('❌ Lệnh này chỉ dành riêng cho Chủ Bot (Owner)!');
 
     const target = options.getUser('user');
     const expAmount = options.getInteger('exp');
 
     await getUser(target.id);
-    addEXP(target.id, expAmount);
+    await addEXP(target.id, expAmount);
 
     const updatedData = await getUser(target.id);
     const { lvl, title } = getTitle(updatedData.exp);
 
-    return i.reply(`⚡ Đã cộng/trừ **${expAmount} EXP** cho <@${target.id}>!\n📊 EXP hiện tại: **${updatedData.exp}** (Cấp **Lvl ${lvl}** - **${title}**)`);
+    return i.editReply(`⚡ Đã cộng/trừ **${expAmount} EXP** cho <@${target.id}>!\n📊 EXP hiện tại: **${updatedData.exp}** (Cấp **Lvl ${lvl}** - **${title}**)`);
   }
 
+  // Rank
   if (cmd === 'rank') {
     const { lvl, title } = getTitle(uData.exp);
     const expNext = (lvl + 1) * 100;
@@ -685,9 +642,10 @@ client.on('interactionCreate', async (i) => {
         { name: '⭐ Cấp Độ (Level)', value: `\`Lvl ${lvl}\``, inline: true },
         { name: '✨ Kinh Nghiệm (EXP)', value: `\`${uData.exp} / ${expNext} EXP\``, inline: false }
       );
-    return i.reply({ embeds: [embed] });
+    return i.editReply({ embeds: [embed] });
   }
 
+  // Quest
   if (cmd === 'quest') {
     const q1 = uData.quest_work >= 3 ? '✅' : `❌ (${uData.quest_work}/3)`;
     const q2 = uData.quest_gamble >= 3 ? '✅' : `❌ (${uData.quest_gamble}/3)`;
@@ -695,7 +653,7 @@ client.on('interactionCreate', async (i) => {
     if (uData.quest_work >= 3 && uData.quest_gamble >= 3 && uData.quest_done === 0) {
       await updateBalance(uid, 30000);
       db.run(`UPDATE users SET quest_done = 1 WHERE id = ?`, [uid]);
-      return i.reply('🎉 **HOÀN THÀNH TẤT CẢ NHIỆM VỤ!** Bạn nhận được phần thưởng **+30.000 xu**!');
+      return i.editReply('🎉 **HOÀN THÀNH TẤT CẢ NHIỆM VỤ!** Bạn nhận được phần thưởng **+30.000 xu**!');
     }
 
     const embed = new EmbedBuilder()
@@ -706,52 +664,119 @@ client.on('interactionCreate', async (i) => {
         `2. Thắng 3 phiên Tài Xỉu Auto: ${q2}\n\n` +
         `🎁 **Phần thưởng:** 30.000 xu (Tự động nhận khi hoàn tất cả 2 nhiệm vụ)`
       );
-    return i.reply({ embeds: [embed] });
+    return i.editReply({ embeds: [embed] });
   }
 
+  // Bảo Hiểm
   if (cmd === 'baohiem') {
     const now = Date.now();
     if (uData.insurance_until > now) {
       const hoursLeft = Math.ceil((uData.insurance_until - now) / 3600000);
-      return i.reply(`🛡️ Bảo hiểm của bạn vẫn còn hiệu lực trong **${hoursLeft} giờ** nữa!`);
+      return i.editReply(`🛡️ Bảo hiểm của bạn vẫn còn hiệu lực trong **${hoursLeft} giờ** nữa!`);
     }
-    if (uData.balance < 10000) return i.reply({ content: '❌ Cần 10.000 xu để mua bảo hiểm!', ephemeral: true });
+    if (uData.balance < 10000) return i.editReply('❌ Cần 10.000 xu để mua bảo hiểm!');
 
     await updateBalance(uid, -10000);
     const expireTime = now + 86400000;
     db.run(`UPDATE users SET insurance_until = ? WHERE id = ?`, [expireTime, uid]);
 
-    return i.reply('🛡️ **Mua thành công gói Bảo Hiểm Chống Cướp (24h)!** Nếu bị cướp, Bảo hiểm sẽ đền bù 80% số tiền bị mất.');
+    return i.editReply('🛡️ **Mua thành công gói Bảo Hiểm Chống Cướp (24h)!** Nếu bị cướp, Bảo hiểm sẽ đền bù 80% số tiền bị mất.');
   }
 
+  // Vé Số
   if (cmd === 'veso') {
     const sub = options.getSubcommand();
     if (sub === 'buy') {
       const num = options.getInteger('sonchon');
-      if (uData.balance < 5000) return i.reply({ content: '❌ Giá mỗi vé là 5.000 xu!', ephemeral: true });
+      if (uData.balance < 5000) return i.editReply('❌ Giá mỗi vé là 5.000 xu!');
 
       await updateBalance(uid, -5000);
       db.run(`INSERT INTO lottery_tickets (user_id, number) VALUES (?, ?)`, [uid, num]);
 
-      return i.reply(`🎟️ Bạn đã mua thành công vé số **[ ${num < 10 ? '0' + num : num} ]** với giá 5.000 xu! Kết quả quay thưởng lúc 18:30.`);
+      return i.editReply(`🎟️ Bạn đã mua thành công vé số **[ ${num < 10 ? '0' + num : num} ]** với giá 5.000 xu! Kết quả quay thưởng lúc 18:30.`);
     }
 
     if (sub === 'list') {
       db.all(`SELECT number FROM lottery_tickets WHERE user_id = ?`, [uid], (err, rows) => {
-        if (!rows || rows.length === 0) return i.reply({ content: '🎫 Bạn chưa mua vé số nào hôm nay!', ephemeral: true });
+        if (!rows || rows.length === 0) return i.editReply('🎫 Bạn chưa mua vé số nào hôm nay!');
         const nums = rows.map(r => `\`${r.number < 10 ? '0' + r.number : r.number}\``).join(', ');
-        return i.reply(`🎟️ Các con số bạn đang sở hữu: ${nums}`);
+        return i.editReply(`🎟️ Các con số bạn đang sở hữu: ${nums}`);
       });
       return;
     }
   }
 
-  if (cmd === 'setlotterychannel') {
-    const ch = options.getChannel('kenh');
-    db.run(`INSERT INTO guild_settings (guild_id, lottery_channel_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET lottery_channel_id = ?`, [guildId, ch.id, ch.id]);
-    return i.reply(`✅ Đã cài đặt kênh <#${ch.id}> làm kênh trả kết quả Vé Số lúc 18:30!`);
+  // Work
+  if (cmd === 'work') {
+    const now = Date.now();
+    if (now - uData.last_work < 300000) return i.editReply('⏳ Đợi 5 phút nữa!');
+
+    const earn = Math.floor(Math.random() * 2000) + 1000;
+    db.run(`UPDATE users SET balance = balance + ?, last_work = ?, quest_work = quest_work + 1 WHERE id = ?`, [earn, now, uid]);
+    await addEXP(uid, 10);
+
+    return i.editReply(`💼 Bạn nhận công làm việc **+${earn.toLocaleString()}** xu (+10 EXP)!`);
   }
 
+  // Chẵn Lẻ
+  if (cmd === 'cl') {
+    const choice = options.getString('luachon'), bet = options.getInteger('tiencuoc');
+    if (bet <= 0 || uData.balance < bet) return i.editReply('❌ Không đủ tiền cược!');
+    const num = Math.floor(Math.random() * 100);
+    const isChan = num % 2 === 0;
+    const win = (choice === 'chan' && isChan) || (choice === 'le' && !isChan);
+
+    if (win) {
+      await updateBalance(uid, bet);
+      await addEXP(uid, 10);
+      return i.editReply(`🔢 Số ra: **${num}** (${isChan ? 'CHẮN' : 'LẺ'}). Thắng **+${bet.toLocaleString()}** xu!`);
+    } else {
+      await updateBalance(uid, -bet);
+      await addEXP(uid, 3);
+      return i.editReply(`🔢 Số ra: **${num}** (${isChan ? 'CHẮN' : 'LẺ'}). Thua **-${bet.toLocaleString()}** xu!`);
+    }
+  }
+
+  // Daily
+  if (cmd === 'daily') {
+    const now = Date.now();
+    if (now - uData.last_daily < 86400000) return i.editReply('⏳ Đã nhận quà hôm nay rồi!');
+    db.run(`UPDATE users SET balance = balance + 5000, last_daily = ? WHERE id = ?`, [now, uid]);
+    return i.editReply('🎉 Bạn nhận được điểm danh +5,000 xu!');
+  }
+
+  // Số dư
+  if (cmd === 'sodu') {
+    return i.editReply({ embeds: [new EmbedBuilder().setColor('#FFD700').setTitle(`💰 Tài Khoản ${user.username}`)
+      .setDescription(`• Số dư ví: ${uData.balance.toLocaleString()} xu\n• Ngân hàng: ${uData.bank.toLocaleString()} xu`)] });
+  }
+
+  // Top
+  if (cmd === 'top') {
+    db.all(`SELECT id, (balance + bank) as total FROM users ORDER BY total DESC LIMIT 5`, [], (err, rows) => {
+      let txt = rows ? rows.map((r, idx) => `**#${idx + 1}** <@${r.id}>: **${r.total.toLocaleString()}** xu`).join('\n') : 'Chưa có dữ liệu';
+      return i.editReply({ embeds: [new EmbedBuilder().setTitle('🏆 BẢNG XẾP HẠNG ĐẠI GIA').setDescription(txt)] });
+    });
+    return;
+  }
+
+  // Add Money
+  if (cmd === 'addmoney') {
+    if (!isBotOwner(uid)) return i.editReply('❌ Lệnh dành riêng cho Owner!');
+    const target = options.getUser('user'), amt = options.getInteger('sotien');
+    await updateBalance(target.id, amt);
+    return i.editReply(`💵 Đã cộng **${amt.toLocaleString()}** xu cho <@${target.id}>!`);
+  }
+
+  // Set Money
+  if (cmd === 'setmoney') {
+    if (!isBotOwner(uid)) return i.editReply('❌ Lệnh dành riêng cho Owner!');
+    const target = options.getUser('user'), amt = options.getInteger('sotien');
+    db.run(`UPDATE users SET balance = ? WHERE id = ?`, [amt, target.id]);
+    return i.editReply(`🧹 Đã cài số dư của <@${target.id}> thành **${amt.toLocaleString()}** xu!`);
+  }
+
+  // Info Bot
   if (cmd === 'info') {
     const app = await client.application.fetch();
     const primaryOwner = app.owner;
@@ -767,111 +792,7 @@ client.on('interactionCreate', async (i) => {
         { name: '👑 Chủ Sở Hữu', value: ownersText, inline: true },
         { name: '🌐 Máy chủ', value: `\`${client.guilds.cache.size}\` server`, inline: true }
       );
-    return i.reply({ embeds: [embed] });
-  }
-
-  if (cmd === 'settxchannel') {
-    const targetChannel = options.getChannel('kenh');
-    db.run(`INSERT INTO guild_settings (guild_id, tx_channel_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET tx_channel_id = ?`, [guildId, targetChannel.id, targetChannel.id]);
-    return i.reply(`✅ Đã chọn <#${targetChannel.id}> làm **Sòng Auto Tài Xỉu**!`);
-  }
-
-  if (cmd === 'canceltxchannel') {
-    db.run(`UPDATE guild_settings SET tx_channel_id = NULL WHERE guild_id = ?`, [guildId]);
-    return i.reply(`🛑 Đã tắt sòng Auto Tài Xỉu.`);
-  }
-
-  if (cmd === 'rob') {
-    const target = options.getUser('target');
-    if (target.id === uid) return i.reply({ content: '❌ Không thể tự cướp chính mình!', ephemeral: true });
-
-    const tData = await getUser(target.id);
-    if (tData.balance < 2000) return i.reply({ content: '❌ Đối phương quá nghèo!', ephemeral: true });
-
-    const now = Date.now();
-    if (now - uData.last_rob < 900000) return i.reply({ content: '⏳ Hãy đợi 15 phút!', ephemeral: true });
-
-    db.run(`UPDATE users SET last_rob = ? WHERE id = ?`, [now, uid]);
-
-    if (Math.random() > 0.5) {
-      const robAmt = Math.floor(tData.balance * 0.2);
-      await updateBalance(target.id, -robAmt);
-      await updateBalance(uid, robAmt);
-
-      let insuranceMsg = '';
-      if (tData.insurance_until > now) {
-        const refund = Math.floor(robAmt * 0.8);
-        await updateBalance(target.id, refund);
-        insuranceMsg = `\n🛡️ Do <@${target.id}> có **Bảo Hiểm**, công ty bảo hiểm đã đền bù lại **+${refund.toLocaleString()}** xu!`;
-      }
-
-      return i.reply(`💥 Cướp thành công **${robAmt.toLocaleString()}** xu từ <@${target.id}>!${insuranceMsg}`);
-    } else {
-      return i.reply(`🛡️ Cướp thất bại, đối phương phản công né được!`);
-    }
-  }
-
-  if (cmd === 'work') {
-    const now = Date.now();
-    if (now - uData.last_work < 300000) return i.reply({ content: '⏳ Đợi 5 phút nữa!', ephemeral: true });
-
-    const earn = Math.floor(Math.random() * 2000) + 1000;
-    db.run(`UPDATE users SET balance = balance + ?, last_work = ?, quest_work = quest_work + 1 WHERE id = ?`, [earn, now, uid]);
-    addEXP(uid, 10);
-
-    return i.reply(`💼 Bạn nhận công làm việc **+${earn.toLocaleString()}** xu (+10 EXP)!`);
-  }
-
-  if (cmd === 'cl') {
-    const choice = options.getString('luachon'), bet = options.getInteger('tiencuoc');
-    if (bet <= 0 || uData.balance < bet) return i.reply({ content: '❌ Không đủ tiền cược!', ephemeral: true });
-    const num = Math.floor(Math.random() * 100);
-    const isChan = num % 2 === 0;
-    const win = (choice === 'chan' && isChan) || (choice === 'le' && !isChan);
-
-    if (win) {
-      await updateBalance(uid, bet);
-      addEXP(uid, 10);
-      return i.reply(`🔢 Số ra: **${num}** (${isChan ? 'CHẮN' : 'LẺ'}). Thắng **+${bet.toLocaleString()}** xu!`);
-    } else {
-      await updateBalance(uid, -bet);
-      addEXP(uid, 3);
-      return i.reply(`🔢 Số ra: **${num}** (${isChan ? 'CHẮN' : 'LẺ'}). Thua **-${bet.toLocaleString()}** xu!`);
-    }
-  }
-
-  if (cmd === 'daily') {
-    const now = Date.now();
-    if (now - uData.last_daily < 86400000) return i.reply({ content: '⏳ Đã nhận quà hôm nay rồi!', ephemeral: true });
-    db.run(`UPDATE users SET balance = balance + 5000, last_daily = ? WHERE id = ?`, [now, uid]);
-    return i.reply('🎉 Bạn nhận được điểm danh +5,000 xu!');
-  }
-
-  if (cmd === 'sodu') {
-    return i.reply({ embeds: [new EmbedBuilder().setColor('#FFD700').setTitle(`💰 Tài Khoản ${user.username}`)
-      .setDescription(`• Số dư ví: ${uData.balance.toLocaleString()} xu\n• Ngân hàng: ${uData.bank.toLocaleString()} xu`)] });
-  }
-
-  if (cmd === 'top') {
-    db.all(`SELECT id, (balance + bank) as total FROM users ORDER BY total DESC LIMIT 5`, [], (err, rows) => {
-      let txt = rows.map((r, idx) => `**#${idx + 1}** <@${r.id}>: **${r.total.toLocaleString()}** xu`).join('\n');
-      return i.reply({ embeds: [new EmbedBuilder().setTitle('🏆 BẢNG XẾP HẠNG ĐẠI GIA').setDescription(txt || 'Chưa có dữ liệu')] });
-    });
-    return;
-  }
-
-  if (cmd === 'addmoney') {
-    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
-    const target = options.getUser('user'), amt = options.getInteger('sotien');
-    await updateBalance(target.id, amt);
-    return i.reply(`💵 Đã cộng **${amt.toLocaleString()}** xu cho <@${target.id}>!`);
-  }
-
-  if (cmd === 'setmoney') {
-    if (!isBotOwner(uid)) return i.reply({ content: '❌ Lệnh dành riêng cho Owner!', ephemeral: true });
-    const target = options.getUser('user'), amt = options.getInteger('sotien');
-    db.run(`UPDATE users SET balance = ? WHERE id = ?`, [amt, target.id]);
-    return i.reply(`🧹 Đã cài số dư của <@${target.id}> thành **${amt.toLocaleString()}** xu!`);
+    return i.editReply({ embeds: [embed] });
   }
 });
 
