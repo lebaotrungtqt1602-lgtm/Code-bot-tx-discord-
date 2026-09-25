@@ -18,7 +18,7 @@ const http = require('http');
 const sqlite3 = require('sqlite3').verbose();
 
 // 🛑 THÊM ID DISCORD CỦA BẠN VÀO ĐÂY (Để làm Chủ bot cùng với OWNER_ID trong .env)
-const CO_OWNER_ID = ''; 
+const CO_OWNER_ID =; 
 
 // 1. HTTP Server giữ Render 24/7
 http.createServer((req, res) => {
